@@ -213,117 +213,208 @@ function randHex(n=16){const a=new Uint8Array(n);crypto.getRandomValues(a);retur
 function safeParseJSON(str){ try{ return JSON.parse(str) }catch(e){ return "__CORRUPTED__" } }
 function backupCorruptAuth(raw){ try{ localStorage.setItem(AUTH_KEY+"_corrupt_"+Date.now(), raw) }catch(e){} }
 
-// charge l’auth en gérant la corruption + migration v1 -> v2
+// charge l’auth en gérant <!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>directivenode — Boards</title>
+<style>
+:root{--bg:#F5F6F7;--panel:#fff;--ink:#0f172a;--muted:#667085;--line:#e5e7eb;--accent:#3b82f6;--accent-weak:#dbeafe;--radius:12px;--grid:8px;--shadow:0 12px 32px rgba(2,6,23,.12);--locked:#fde68a;--danger:#ef4444;--brand:#111827}
+*{box-sizing:border-box}html,body{height:100%;margin:0;font:14px/1.45 ui-sans-serif,-apple-system,Segoe UI,Roboto,Helvetica,Arial}body{background:var(--bg);color:var(--ink);overflow:hidden}
+/* hide app until login */
+body.authing #topbar,body.authing #sidebar,body.authing #viewport,body.authing #projectsModal,body.authing #usersModal,body.authing #ctx{display:none!important;visibility:hidden!important}
+/* topbar */
+.topbar{position:fixed;inset:0 0 auto 0;height:58px;display:flex;align-items:center;gap:10px;background:var(--panel);border-bottom:1px solid var(--line);padding:0 12px;z-index:6;box-shadow:var(--shadow)}
+.brand{display:flex;align-items:center;gap:8px;font-weight:800;color:var(--brand)}.brand .dot{width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 4px var(--accent-weak)}
+.title{border:none;background:#f8fafc;padding:8px 10px;border-radius:10px;width:280px}.sep{width:1px;height:28px;background:var(--line)}
+.input{border:1px solid var(--line);border-radius:10px;background:#f8fafc;padding:6px 10px;display:flex;align-items:center;gap:8px;min-width:280px}
+.input input{border:none;background:transparent;outline:none;width:100%}
+.btn{border:1px solid var(--line);background:#fff;border-radius:10px;padding:8px 12px;cursor:pointer}.btn.primary{background:var(--accent);color:#fff;border-color:transparent}.btn.danger{background:var(--danger);color:#fff;border-color:transparent}.btn.ghost{background:transparent}.btn:disabled{opacity:.6;cursor:not-allowed}.right{margin-left:auto;display:flex;gap:8px;align-items:center}
+/* sidebar */
+.sidebar{position:fixed;left:12px;top:72px;bottom:12px;width:230px;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:12px;box-shadow:var(--shadow);z-index:3;overflow:auto}
+.tool{display:flex;align-items:center;gap:8px;border:1px dashed var(--line);padding:8px;border-radius:10px;cursor:grab;margin-bottom:8px;background:#fafafa}.tool:hover{border-style:solid}
+/* viewport/canvas */
+.viewport{position:absolute;inset:58px 0 0 0}.canvas-wrap{position:absolute;inset:0;overflow:hidden}
+.canvas{position:absolute;left:0;top:0;width:8000px;height:8000px;background-image:radial-gradient(rgba(16,24,40,.05) 1px, transparent 0);background-size:var(--grid) var(--grid);transform-origin:0 0;border:2px solid #cbd5e1;border-radius:4px;box-shadow:inset 0 0 0 1px rgba(2,6,23,.04)}
+.hint{position:fixed;left:254px;top:76px;font-size:12px;color:var(--muted);background:#fff;border:1px solid var(--line);padding:6px 10px;border-radius:8px;box-shadow:var(--shadow);z-index:4}
+/* cards */
+.card{position:absolute;min-width:168px;min-height:96px;background:#fff;border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);user-select:none}
+.card.locked{outline:2px dashed var(--locked);outline-offset:2px}.card-header{height:34px;background:#fbfbfb;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 8px;border-radius:12px 12px 0 0;cursor:grab}
+.card-title{font-weight:600}.card-actions{display:flex;gap:6px}.card-actions button{border:1px solid var(--line);background:#fff;border-radius:8px;padding:4px 6px;cursor:pointer}
+.content{padding:10px;overflow:auto;height:calc(100% - 34px);border-radius:0 0 12px 12px}.resizer{position:absolute;right:-6px;bottom:-6px;width:14px;height:14px;background:#fff;border:1px solid var(--line);border-radius:4px;cursor:nwse-resize}
+/* types */
+.note .content[contenteditable="true"]{outline:none;white-space:pre-wrap}.doc .toolbar{display:flex;gap:6px;margin-bottom:6px}.doc .toolbar button{border:1px solid var(--line);background:#fff;border-radius:8px;padding:4px 8px;cursor:pointer}.doc .editor{min-height:120px;padding:8px;border:1px solid var(--line);border-radius:8px;outline:none}
+.todo ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}.todo li{display:flex;gap:8px;align-items:center}
+.image .content img{max-width:100%;display:block;border-radius:10px;margin-bottom:8px}.swatch .content{display:flex;gap:10px;align-items:center}.swatch .chip{width:28px;height:28px;border-radius:6px;border:1px solid var(--line)}.link .meta{color:var(--muted);font-size:12px}
+/* column */
+.column{background:#fcfcfc}.column .content{display:flex;flex-direction:column;gap:8px;min-height:120px}.column .dropzone{border:1px dashed var(--line);border-radius:10px;padding:8px;text-align:center;color:var(--muted)}
+.child{position:relative;background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px;box-shadow:none}.child .child-actions{position:absolute;top:6px;right:6px;display:flex;gap:6px}.child .child-actions button{border:1px solid var(--line);background:#fff;border-radius:8px;padding:2px 6px;cursor:pointer}
+/* table */
+.table .content{overflow:auto}.table table{border-collapse:collapse;width:100%}.table th,.table td{border:1px solid var(--line);padding:6px;min-width:80px}.table tfoot td{background:#f8fafc;font-weight:600}
+/* read-only/presentation */
+.readonly .card-header{cursor:default}.readonly .resizer,.readonly .tool,.readonly .card-actions .edit-only{display:none}.present *:not(.canvas,.canvas *){display:none!important}.present .canvas{background:#fff}
+/* context menu */
+.ctx{position:absolute;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);padding:6px;display:none;z-index:10}.ctx button{display:block;width:100%;text-align:left;border:none;background:#fff;padding:8px;border-radius:8px;cursor:pointer}.ctx button:hover{background:#f8fafc}
+/* connectors SVG */
+svg.wires{position:absolute;left:0;top:0;pointer-events:none;transform-origin:0 0}
+/* auth overlay */
+.overlay{position:fixed;inset:0;background:radial-gradient(1200px 600px at 10% -20%, rgba(59,130,246,.18), transparent), linear-gradient(180deg, rgba(2,6,23,.22), rgba(2,6,23,.06));display:flex;align-items:center;justify-content:center;z-index:9999;pointer-events:auto}
+.card-auth{width:min(520px, 92vw);background:#fff;border:1px solid var(--line);border-radius:20px;box-shadow:var(--shadow);padding:20px}
+.hero{display:flex;gap:10px;align-items:center;margin-bottom:10px}.logo{width:40px;height:40px;border-radius:12px;background:conic-gradient(from 120deg, var(--accent), #22c55e, #a855f7, var(--accent));box-shadow:0 6px 18px rgba(2,6,23,.2)}.hero h1{margin:0;font-size:22px}.hero small{color:var(--muted);display:block}
+.field{margin:8px 0}.field input{width:100%;padding:12px;border:1px solid var(--line);border-radius:10px}.note{font-size:12px;color:var(--muted)}.actions{display:flex;gap:8px;margin-top:8px}
+.banner{display:flex;gap:8px;padding:10px;border:1px dashed var(--line);border-radius:12px;background:#fafafa;margin-top:8px;color:#334155;align-items:center;justify-content:space-between}.banner .row{display:flex;gap:8px;align-items:center}.badge{display:inline-block;padding:2px 8px;border-radius:999px;background:var(--accent-weak);color:var(--accent);font-weight:700;font-size:12px}
+/* modals */
+.modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(15,23,42,.28);backdrop-filter:saturate(120%) blur(2px);z-index:9998;pointer-events:auto}
+.modal .window{width:min(720px,92vw);max-height:80vh;overflow:auto;background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:16px}
+.modal h3{margin:0 0 8px 0}.modal .list .item{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;background:#fafafa;border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:8px}.modal .list .name{flex:1}.modal .list .actions{display:flex;gap:8px;flex-wrap:wrap}
+</style>
+</head>
+<body class="authing">
+  <div class="topbar" id="topbar" style="display:none">
+    <div class="brand"><span class="dot"></span> directivenode</div>
+    <button class="btn" id="projectsBtn">Projets ▾</button>
+    <input id="boardTitle" class="title" value="Projet Démo"/>
+    <div class="sep"></div>
+    <div class="input">
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M21 21l-4.35-4.35m2.1-5.4a7.5 7.5 0 11-15 0 7.5 7.5 0 0115 0z" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+      <input id="search" placeholder="Rechercher dans les cartes (Ctrl/Cmd+F)"/>
+    </div>
+    <button class="btn" id="fitBtn">Fit (Z)</button>
+    <button class="btn" id="connectBtn">Connect</button>
+    <div class="right">
+      <button class="btn" id="usersBtn" style="display:none">Utilisateurs</button>
+      <button class="btn" id="readonlyBtn">Read-only: OFF</button>
+      <button class="btn" id="presentBtn">Présentation</button>
+      <button class="btn" id="exportBtn">Exporter</button>
+      <label class="btn" for="importInput">Importer</label><input id="importInput" type="file" accept="application/json" style="display:none"/>
+      <button class="btn danger" id="logoutBtn" title="Se déconnecter">Logout</button>
+    </div>
+  </div>
+
+  <aside class="sidebar" id="sidebar" style="display:none">
+    <div class="tool" data-type="note" draggable="true">📝 Note</div>
+    <div class="tool" data-type="doc" draggable="true">📄 Document</div>
+    <div class="tool" data-type="todo" draggable="true">☑️ To-do</div>
+    <div class="tool" data-type="image" draggable="true">🖼️ Image</div>
+    <div class="tool" data-type="link" draggable="true">🔗 Lien</div>
+    <div class="tool" data-type="swatch" draggable="true">🎨 Couleur</div>
+    <div class="tool" data-type="column" draggable="true">📦 Colonne</div>
+    <div class="tool" data-type="table" draggable="true">📊 Tableau</div>
+    <div class="tool" data-type="map" draggable="true">🗺️ Carte</div>
+    <div class="hint">Espace+glisser: pan • Ctrl/Cmd ±: zoom • “/”: Quick add • Alt+glisser: dupliquer • clic droit: menu</div>
+  </aside>
+
+  <div class="viewport" id="viewport" style="display:none">
+    <div class="canvas-wrap" id="wrap">
+      <svg class="wires" id="wires" width="8000" height="8000"></svg>
+      <div class="canvas" id="canvas" tabindex="0" role="application"></div>
+    </div>
+  </div>
+
+  <div class="ctx" id="ctx">
+    <button data-act="lock">🔒 Verrouiller / Déverrouiller</button>
+    <button data-act="dup">⧉ Dupliquer</button>
+    <button data-act="movecol">➡️ Déplacer vers colonne…</button>
+    <button data-act="detach">⬅️ Sortir de la colonne</button>
+    <button data-act="comment">💬 Commentaires</button>
+    <button data-act="del">🗑️ Supprimer</button>
+  </div>
+
+  <!-- AUTH OVERLAY REMOVED: no-auth mode -->
+  </div>
+
+  <!-- PROJECTS MODAL -->
+  <div class="modal" id="projectsModal">
+    <div class="window">
+      <h3>Projets de <span id="userDisplay"></span></h3>
+      <div class="actions" style="justify-content:space-between">
+        <div style="display:flex;gap:8px;flex:1">
+          <input id="newProjectName" placeholder="Nom du nouveau projet" style="flex:1;padding:8px;border:1px solid var(--line);border-radius:10px"/>
+          <button class="btn primary" id="createProjectBtn">Créer</button>
+        </div>
+        <button class="btn" id="closeProjectsBtn">Fermer</button>
+      </div>
+      <div class="list" id="projectsList" style="margin-top:8px"></div>
+    </div>
+  </div>
+
+  <!-- USERS MODAL -->
+  <div class="modal" id="usersModal">
+    <div class="window">
+      <h3>Comptes utilisateur</h3>
+      <div class="actions" style="gap:12px;align-items:flex-end">
+        <div style="flex:1"><div class="field"><input id="nuUser" placeholder="Nom d'utilisateur (unique)"></div></div>
+        <div style="flex:1"><div class="field">
+        <div><select id="nuRole" class="btn"><option value="user">User</option><option value="admin">Admin</option></select></div>
+        <button class="btn primary" id="addUserBtn">Ajouter</button>
+        <button class="btn" id="closeUsersBtn">Fermer</button>
+      </div>
+      <div class="list" id="usersList" style="margin-top:8px"></div>
+      <div class="note" style="margin-top:8px">Règles : au moins 1 admin doit exister. Impossible de supprimer le dernier admin ou votre propre compte connecté.</div>
+    </div>
+  </div>
+
+<script>
+// === No-Auth bootstrap stubs ===
+const $ = (s)=>document.querySelector(s);
+window.hideApp = window.hideApp || function(){
+  const a = document.getElementById('auth'); if(a) a.style.display='none';
+  document.body.classList.add('authing');
+};
+window.showApp = window.showApp || function(){
+  const a = document.getElementById('auth'); if(a) a.style.display='none';
+  document.body.classList.remove('authing');
+};
+
+/* ===== Helpers ===== */
+const $=(s,el=document)=>el.querySelector(s), $$=(s,el=document)=>Array.from(el.querySelectorAll(s));
+function escapeHtml(s){return (s||"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]))}
+function normalizeHex(v){if(!v)return"#000000";if(!v.startsWith("#"))v="#"+v;if(v.length===4)v="#"+v[1]+v[1]+v[2]+v[2]+v[3]+v[3];return v.slice(0,7)}
+function coerce(v){const n=Number(v);return isFinite(n)&&v.trim()!==""?n:v}
+const idn=()=>Math.random().toString(36).slice(2,9), GRID=8, CANVAS=8000;
+const cssPos=(x,y)=>`translate(${x}px,${y}px)`;
+
+/* ===== Auth (localStorage) — NO AUTH MODE ===== */
+const AUTH_KEY="milanote_auth_v2";
+let CURRENT_USER=null, CURRENT_PROJECT=null;
+
+// basic helpers kept for compatibility
 function loadAuth(){
-  const raw = localStorage.getItem(AUTH_KEY);
-  if(raw){
-    const j = safeParseJSON(raw);
-    if(j !== "__CORRUPTED__") return j;
-    window.__AUTH_CORRUPTED__ = true;
-    backupCorruptAuth(raw);
-    localStorage.removeItem(AUTH_KEY);
-  }
-  // migration éventuelle depuis v1
-  const v1 = localStorage.getItem(OLD_AUTH_KEY);
-  if(v1){
-    const j = safeParseJSON(v1);
-    if(j !== "__CORRUPTED__" && j && j.users){
-      const users = {};
-      for(const [u,rec] of Object.entries(j.users)) users[u] = {...rec, role:"admin"};
-      const v2obj = { users, current: j.current || null };
-      localStorage.setItem(AUTH_KEY, JSON.stringify(v2obj));
-      return v2obj;
-    }
-  }
-  return { users:{}, current:null };
+  try{ return JSON.parse(localStorage.getItem(AUTH_KEY)||'{"users":{},"current":null}') }catch(e){ return {"users":{},"current":null} }
 }
 function saveAuth(obj){ try{ localStorage.setItem(AUTH_KEY, JSON.stringify(obj)) }catch(e){} }
 
-function isAdmin(u){ const a=loadAuth(); return !!(a.users[u] && a.users[u].role==="admin"); }
-function findUserKeyCaseInsensitive(u){
-  const a=loadAuth(); const t=(u||"").toLowerCase();
-  for(const k of Object.keys(a.users)) if(k.toLowerCase()===t) return k;
-  return null;
-}
-
-// détecte les usernames ayant déjà des projets stockés
 function scanProjectUsernames(){
   const names=new Set();
   for(let i=0;i<localStorage.length;i++){
     const k=localStorage.key(i);
-    if(k && k.startsWith("milanote_projects_")){
-      names.add(k.slice("milanote_projects_".length));
-    }
+    if(k && k.startsWith('milanote_projects_')) names.add(k.slice('milanote_projects_'.length));
   }
   return [...names];
 }
 
-// crée un utilisateur (salt + SHA-256(salt+password))
-async function createUserWithPassword(username, password, role="user"){
-  const a=loadAuth();
-  const salt = randHex(16);
-  const hash = await sha256Hex(salt + password);
-  a.users[username] = { salt, hash, role };
-  a.current = username;
-  saveAuth(a);
-  return username;
-}
-
-// recrée l’admin par défaut
-async function createOrResetAdmin(){
-  await createUserWithPassword("ALVINIO","Wsxcfrt123","admin");
-  alert("Admin par défaut recréé.");
-}
-// garantit la présence de l’admin au démarrage ou après corruption
-async function ensureHardcodedAdmin(){
-  const a=loadAuth();
-  const exists = Object.keys(a.users).some(k=>k.toLowerCase()==="alvinio");
-  if(!exists || window.__AUTH_CORRUPTED__){
-    await createUserWithPassword("ALVINIO","Wsxcfrt123","admin");
-  }
-}
-
-// UI d’auth avec récupération auto si l’utilisateur a disparu mais qu’on trouve ses projets
 async function initAuthUI(){
-  await ensureHardcodedAdmin();
-  document.body.classList.add("authing"); $("#auth").style.display="flex";
-  $("#showHintBtn").onclick=()=>{$("#hint").style.display=$("#hint").style.display==="none"?"flex":"none"};
-  $("#fixAdminBtn").onclick=async()=>{await createOrResetAdmin()};
-  $("#resetAuthBtn").onclick=()=>{ if(confirm("Effacer la liste des comptes ? (Les projets restent)")){
-    localStorage.removeItem(AUTH_KEY); alert("Comptes réinitialisés. Recharge la page."); location.reload();
-  }};
-
-  $("#loginBtn").onclick=async()=>{
-    const u=$("#liUser").value.trim(), p=$("#liPass").value;
-    const a=loadAuth();
-    let key = findUserKeyCaseInsensitive(u);
-
-    // RÉCUPÉRATION : user introuvable mais projets présents -> recrée le user avec le mdp saisi
-    if(!key){
-      const known = scanProjectUsernames();
-      const match = known.find(n => n.toLowerCase() === u.toLowerCase());
-      if(match){ key = await createUserWithPassword(match, p, "user"); }
-    }
-
-    if(!key){ alert("Utilisateur introuvable"); return; }
-    const rec = loadAuth().users[key];
-    const hash = await sha256Hex(rec.salt + p);
-    if(hash !== rec.hash){ alert("Mot de passe incorrect"); return; }
-
-    const auth = loadAuth(); auth.current = key; saveAuth(auth);
-    CURRENT_USER = key; await firstOpenOrMigrate();
-    $("#auth").style.display="none"; document.body.classList.remove("authing"); showApp();
-  };
-
-  if(window.__AUTH_CORRUPTED__){ $("#hint").style.display="flex"; }
+  // Choose a user from existing project keys, or default to ALVINIO
+  let pick = scanProjectUsernames()[0] || 'ALVINIO';
+  CURRENT_USER = pick;
+  const a = loadAuth(); a.users[pick] = a.users[pick] || { role: 'admin' }; a.current = pick; saveAuth(a);
+  // Remove/hide overlay and open the app
+  if (typeof firstOpenOrMigrate === 'function') { try { await firstOpenOrMigrate(); } catch(e){} }
+  const overlay = document.getElementById('auth'); if(overlay) overlay.remove();
+  document.body.classList.remove('authing');
+  if (typeof showApp === 'function') showApp();
 }
 
+// keep logout API as no-op that just reopens app
 function logout(){
   const a=loadAuth(); a.current=null; saveAuth(a);
-  CURRENT_USER=null; CURRENT_PROJECT=null; hideApp(); initAuthUI();
+  CURRENT_USER=null; CURRENT_PROJECT=null;
+  if (typeof showApp === 'function') showApp();
 }
-/* ===== Users admin ===== */
-function renderUsers(){const list=$("#usersList");list.innerHTML="";const a=loadAuth();Object.entries(a.users).forEach(([u,rec])=>{const row=document.createElement("div");row.className="item";const nm=document.createElement("div");nm.className="name";nm.innerHTML=`<strong>${escapeHtml(u)}</strong> <span class="badge">${rec.role||"user"}</span>`;const acts=document.createElement("div");acts.className="actions";const mk=(t,cls,fn)=>{const b=document.createElement("button");b.textContent=t;b.className="btn "+(cls||"");b.onclick=fn;return b};const toggle=mk(rec.role==="admin"?"Rendre User":"Rendre Admin","",()=>{const A=loadAuth();if(rec.role==="admin"){const cnt=Object.values(A.users).filter(x=>x.role==="admin").length;if(cnt<=1){alert("Impossible de retirer le dernier admin.");return}A.users[u].role="user"}else{A.users[u].role="admin"};saveAuth(A);renderUsers()});const reset=mk("Reset PW","",async()=>{const np=prompt("Nouveau mot de passe pour "+u+":");if(!np)return;const A=loadAuth();const salt=randHex(16), hash=await sha256Hex(salt+np);A.users[u].salt=salt;A.users[u].hash=hash;saveAuth(A);alert("Mot de passe mis à jour.")});const del=mk("Supprimer","danger",()=>{if(u===CURRENT_USER){alert("Tu ne peux pas supprimer l'utilisateur connecté.");return}const A=loadAuth();const cnt=Object.values(A.users).filter(x=>x.role==="admin").length;if(A.users[u].role==="admin"&&cnt<=1){alert("Impossible de supprimer le dernier admin.");return}if(confirm("Supprimer '"+u+"' ?")){delete A.users[u];saveAuth(A);renderUsers()}});acts.append(toggle,reset,del);row.append(nm,acts);list.append(row)})}
+
+/* ===== Users admin ===== *//
+function renderUsers(){const list=$("#usersList");list.innerHTML="";const a=loadAuth();Object.entries(a.users).forEach(([u,rec])=>{const row=document.createElement("div");row.className="item";const nm=document.createElement("div");nm.className="name";nm.innerHTML=`<strong>${escapeHtml(u)}</strong> <span class="badge">${rec.role||"user"}</span>`;const acts=document.createElement("div");acts.className="actions";const mk=(t,cls,fn)=>{const b=document.createElement("button");b.textContent=t;b.className="btn "+(cls||"");b.onclick=fn;return b};const toggle=mk(rec.role==="admin"?"Rendre User":"Rendre Admin","",()=>{const A=loadAuth();if(rec.role==="admin"){const cnt=Object.values(A.users).filter(x=>x.role==="admin").length;if(cnt<=1){alert("Impossible de retirer le dernier admin.");return}A.users[u].role="user"}else{A.users[u].role="admin"};saveAuth(A);renderUsers()});const reset=mk("","",async()=>{const np=prompt("Nouveau mot de passe pour "+u+":");if(!np)return;const A=loadAuth();const salt=randHex(16), hash=await sha256Hex(salt+np);A.users[u].salt=salt;A.users[u].hash=hash;saveAuth(A);alert("Mot de passe mis à jour.")});const del=mk("Supprimer","danger",()=>{if(u===CURRENT_USER){alert("Tu ne peux pas supprimer l'utilisateur connecté.");return}const A=loadAuth();const cnt=Object.values(A.users).filter(x=>x.role==="admin").length;if(A.users[u].role==="admin"&&cnt<=1){alert("Impossible de supprimer le dernier admin.");return}if(confirm("Supprimer '"+u+"' ?")){delete A.users[u];saveAuth(A);renderUsers()}});acts.append(toggle,reset,del);row.append(nm,acts);list.append(row)})}
 $("#usersBtn").onclick=()=>{if(!isAdmin(CURRENT_USER))return;$("#usersModal").style.display="flex";renderUsers()};$("#closeUsersBtn").onclick=()=>{$("#usersModal").style.display="none"};
 $("#addUserBtn").onclick=async()=>{const u=$("#nuUser").value.trim(), p=$("#nuPass").value, r=$("#nuRole").value;if(!u||!p){alert("Renseigne username et mot de passe.");return}const A=loadAuth();if(A.users[u]){alert("Ce username existe déjà.");return}const salt=randHex(16), hash=await sha256Hex(salt+p);A.users[u]={salt,hash,role:r};saveAuth(A);$("#nuUser").value="";$("#nuPass").value="";$("#nuRole").value="user";renderUsers()};
 
@@ -432,9 +523,6 @@ $("#search").addEventListener("input",()=>applyState());
 function matchesSearch(card){const q=$("#search").value.trim().toLowerCase();if(!q)return false;const blob=JSON.stringify(card).toLowerCase();return blob.includes(q)}
 function quickAdd(){const t=prompt("Type (note, doc, todo, image, link, swatch, column, table, map):","note");if(!t)return;const r=wrap.getBoundingClientRect();const cx=r.width/2, cy=r.height/2;const p=toCanvas(r.left+cx,r.top+cy);createCard(t.trim().toLowerCase(),p.x,p.y)}
 
-
-function hideApp(){ $("#topbar").style.display="none"; $("#sidebar").style.display="none"; $("#viewport").style.display="none"; $("#projectsModal").style.display="none"; $("#usersModal").style.display="none" }
-function showApp(){ $("#topbar").style.display="flex"; $("#sidebar").style.display="block"; $("#viewport").style.display="block"; $("#userDisplay").textContent=CURRENT_USER||""; $("#usersBtn").style.display=isAdmin(CURRENT_USER)?"inline-block":"none"; renderProjectsList() }
 (async function boot(){hideApp();await initAuthUI()})();
 /* UI buttons */
 $("#readonlyBtn").onclick=()=>{state.readonly=!state.readonly;$("#readonlyBtn").textContent="Read-only: "+(state.readonly?"ON":"OFF");applyState();saveBoard()}
