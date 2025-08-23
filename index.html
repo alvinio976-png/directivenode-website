@@ -106,7 +106,30 @@ svg.wires{position:absolute;left:0;top:0;pointer-events:none;transform-origin:0 
     <button data-act="del">🗑️ Supprimer</button>
   </div>
 
-  <!-- AUTH OVERLAY REMOVED -->
+  <!-- AUTH OVERLAY -->
+  <div class="overlay" id="auth">
+    <div class="card-auth">
+      <div class="hero">
+        <div class="logo"></div>
+        <div><h1>directivenode</h1><small>Workboards visuels sécurisés</small></div>
+      </div>
+      <div id="loginForm" class="login">
+        <div class="field"><input id="liUser" placeholder="Nom d'utilisateur"></div>
+        <div class="field"><input id="liPass" type="password" placeholder="Mot de passe"></div>
+        <div class="actions">
+          <button class="btn primary" id="loginBtn">Se connecter</button>
+          <button class="btn ghost" id="showHintBtn">Besoin d'aide ?</button>
+        </div>
+        <div class="banner" id="hint" style="display:none">
+          <div class="row"><span class="badge">Astuce</span> Si tu as un souci de connexion, clique <strong>Réparer admin</strong> pour recréer le compte administrateur par défaut.</div>
+          <div class="row">
+            <button class="btn" id="fixAdminBtn">Réparer admin</button>
+            <button class="btn danger" id="resetAuthBtn">Réinitialiser comptes</button>
+          </div>
+        </div>
+        <div class="note">Identifiants stockés localement (hashés) dans votre navigateur.</div>
+      </div>
+    </div>
   </div>
 
   <!-- PROJECTS MODAL -->
@@ -141,17 +164,6 @@ svg.wires{position:absolute;left:0;top:0;pointer-events:none;transform-origin:0 
   </div>
 
 <script>
-// === No-Auth bootstrap stubs (direct entry) ===
-const $ = (s)=>document.querySelector(s);
-window.hideApp = window.hideApp || function(){
-  const a=document.getElementById('auth'); if(a) a.style.display='none';
-  document.body.classList.add('authing');
-};
-window.showApp = window.showApp || function(){
-  const a=document.getElementById('auth'); if(a) a.style.display='none';
-  document.body.classList.remove('authing');
-};
-
 /* ===== Helpers ===== */
 const $=(s,el=document)=>el.querySelector(s), $$=(s,el=document)=>Array.from(el.querySelectorAll(s));
 function escapeHtml(s){return (s||"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]))}
@@ -160,39 +172,39 @@ function coerce(v){const n=Number(v);return isFinite(n)&&v.trim()!==""?n:v}
 const idn=()=>Math.random().toString(36).slice(2,9), GRID=8, CANVAS=8000;
 const cssPos=(x,y)=>`translate(${x}px,${y}px)`;
 
-/* ===== Auth (localStorage) — REMOVED: direct open ===== */
-const AUTH_KEY="milanote_auth_v2";
+/* ===== Auth (localStorage) ===== */
+const AUTH_KEY="milanote_auth_v2", OLD_AUTH_KEY="milanote_auth_v1", OLD_SINGLE_KEY="milanote_clone_fn_v2";
 let CURRENT_USER=null, CURRENT_PROJECT=null;
 
-function loadAuth(){ try{ return JSON.parse(localStorage.getItem(AUTH_KEY)||'{"users":{},"current":null}') }catch(e){ return {"users":{},"current":null} } }
-function saveAuth(obj){ try{ localStorage.setItem(AUTH_KEY, JSON.stringify(obj)) }catch(e){} }
+async function sha256Hex(str){const enc=new TextEncoder().encode(str);const buf=await crypto.subtle.digest("SHA-256",enc);return [...new Uint8Array(buf)].map(x=>x.toString(16).padStart(2,"0")).join("")}
+function randHex(n=16){const a=new Uint8Array(n);crypto.getRandomValues(a);return [...a].map(x=>x.toString(16).padStart(2,"0")).join("")}
+function loadAuth(){const v2=localStorage.getItem(AUTH_KEY);if(v2) return JSON.parse(v2);const v1=localStorage.getItem(OLD_AUTH_KEY);if(v1){const j=JSON.parse(v1);if(j&&j.users){const users={};for(const [u,rec] of Object.entries(j.users)){users[u]={...rec,role:"admin"}}const v2obj={users, current:j.current||null};localStorage.setItem(AUTH_KEY,JSON.stringify(v2obj));return v2obj}}return {users:{}, current:null}}
+function saveAuth(obj){localStorage.setItem(AUTH_KEY,JSON.stringify(obj))}
+function isAdmin(u){const a=loadAuth();return !!(a.users[u]&&a.users[u].role==="admin")}
+function findUserKeyCaseInsensitive(u){const a=loadAuth();const t=u.toLowerCase();for(const k of Object.keys(a.users)){if(k.toLowerCase()===t) return k}return null}
 
-function scanProjectUsernames(){
-  const names=new Set();
-  for(let i=0;i<localStorage.length;i++){
-    const k=localStorage.key(i);
-    if(k && k.startsWith('milanote_projects_')) names.add(k.slice('milanote_projects_'.length));
-  }
-  return [...names];
-}
+async function createOrResetAdmin(){const u="ALVINIO", p="Wsxcfrt123";const a=loadAuth();const salt=randHex(16);const hash=await sha256Hex(salt+p);a.users[u]={salt,hash,role:"admin"};a.current=null;saveAuth(a);alert("Admin par défaut recréé.")}
+async function ensureHardcodedAdmin(){const a=loadAuth();const exists=Object.keys(a.users).some(k=>k.toLowerCase()==="alvinio");if(!exists){const u="ALVINIO", p="Wsxcfrt123";const salt=randHex(16);const hash=await sha256Hex(salt+p);a.users[u]={salt,hash,role:"admin"};a.current=null;saveAuth(a)}}
 
 async function initAuthUI(){
-  let pick = scanProjectUsernames()[0] || 'ALVINIO';
-  CURRENT_USER = pick;
-  const a = loadAuth(); a.users[pick] = a.users[pick] || { role: 'admin' }; a.current = pick; saveAuth(a);
-  if (typeof firstOpenOrMigrate === 'function') { try { await firstOpenOrMigrate(); } catch(e){} }
-  const overlay = document.getElementById('auth'); if(overlay) overlay.remove();
-  document.body.classList.remove('authing');
-  if (typeof showApp === 'function') showApp();
+  await ensureHardcodedAdmin();
+  document.body.classList.add("authing"); $("#auth").style.display="flex";
+  $("#showHintBtn").onclick=()=>{$("#hint").style.display=$("#hint").style.display==="none"?"flex":"none"};
+  $("#fixAdminBtn").onclick=async()=>{await createOrResetAdmin()};
+  $("#resetAuthBtn").onclick=()=>{if(confirm("Effacer la liste des comptes ? (Les projets restent)")){localStorage.removeItem(AUTH_KEY);alert("Comptes réinitialisés. Recharge la page.");location.reload()}};
+  $("#loginBtn").onclick=async()=>{
+    const u=$("#liUser").value.trim(), p=$("#liPass").value; const a=loadAuth(); const key=findUserKeyCaseInsensitive(u);
+    if(!key){alert("Utilisateur introuvable");return}
+    const rec=a.users[key]; const hash=await sha256Hex(rec.salt+p); if(hash!==rec.hash){alert("Mot de passe incorrect");return}
+    a.current=key; saveAuth(a); CURRENT_USER=key; await firstOpenOrMigrate();
+    $("#auth").style.display="none"; document.body.classList.remove("authing"); showApp();
+  };
 }
+function logout(){const a=loadAuth();a.current=null;saveAuth(a);CURRENT_USER=null;CURRENT_PROJECT=null;hideApp();initAuthUI()}
+function showApp(){ $("#topbar").style.display="flex"; $("#sidebar").style.display="block"; $("#viewport").style.display="block"; $("#userDisplay").textContent=CURRENT_USER||""; $("#usersBtn").style.display=isAdmin(CURRENT_USER)?"inline-block":"none"; renderProjectsList() }
+function hideApp(){ $("#topbar").style.display="none"; $("#sidebar").style.display="none"; $("#viewport").style.display="none"; $("#projectsModal").style.display="none"; $("#usersModal").style.display="none" }
 
-function logout(){
-  // No auth: keep app visible
-  const a=loadAuth(); a.current=null; saveAuth(a);
-  CURRENT_USER=null; CURRENT_PROJECT=null;
-  if (typeof showApp === 'function') showApp();
-}
-/* ===== Users admin ===== *//
+/* ===== Users admin ===== */
 function renderUsers(){const list=$("#usersList");list.innerHTML="";const a=loadAuth();Object.entries(a.users).forEach(([u,rec])=>{const row=document.createElement("div");row.className="item";const nm=document.createElement("div");nm.className="name";nm.innerHTML=`<strong>${escapeHtml(u)}</strong> <span class="badge">${rec.role||"user"}</span>`;const acts=document.createElement("div");acts.className="actions";const mk=(t,cls,fn)=>{const b=document.createElement("button");b.textContent=t;b.className="btn "+(cls||"");b.onclick=fn;return b};const toggle=mk(rec.role==="admin"?"Rendre User":"Rendre Admin","",()=>{const A=loadAuth();if(rec.role==="admin"){const cnt=Object.values(A.users).filter(x=>x.role==="admin").length;if(cnt<=1){alert("Impossible de retirer le dernier admin.");return}A.users[u].role="user"}else{A.users[u].role="admin"};saveAuth(A);renderUsers()});const reset=mk("Reset PW","",async()=>{const np=prompt("Nouveau mot de passe pour "+u+":");if(!np)return;const A=loadAuth();const salt=randHex(16), hash=await sha256Hex(salt+np);A.users[u].salt=salt;A.users[u].hash=hash;saveAuth(A);alert("Mot de passe mis à jour.")});const del=mk("Supprimer","danger",()=>{if(u===CURRENT_USER){alert("Tu ne peux pas supprimer l'utilisateur connecté.");return}const A=loadAuth();const cnt=Object.values(A.users).filter(x=>x.role==="admin").length;if(A.users[u].role==="admin"&&cnt<=1){alert("Impossible de supprimer le dernier admin.");return}if(confirm("Supprimer '"+u+"' ?")){delete A.users[u];saveAuth(A);renderUsers()}});acts.append(toggle,reset,del);row.append(nm,acts);list.append(row)})}
 $("#usersBtn").onclick=()=>{if(!isAdmin(CURRENT_USER))return;$("#usersModal").style.display="flex";renderUsers()};$("#closeUsersBtn").onclick=()=>{$("#usersModal").style.display="none"};
 $("#addUserBtn").onclick=async()=>{const u=$("#nuUser").value.trim(), p=$("#nuPass").value, r=$("#nuRole").value;if(!u||!p){alert("Renseigne username et mot de passe.");return}const A=loadAuth();if(A.users[u]){alert("Ce username existe déjà.");return}const salt=randHex(16), hash=await sha256Hex(salt+p);A.users[u]={salt,hash,role:r};saveAuth(A);$("#nuUser").value="";$("#nuPass").value="";$("#nuRole").value="user";renderUsers()};
