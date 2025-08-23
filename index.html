@@ -131,6 +131,7 @@ svg.wires{position:absolute;left:0;top:0;pointer-events:none;transform-origin:0 
       </div>
     </div>
   </div>
+  </div>
 
   <!-- PROJECTS MODAL -->
   <div class="modal" id="projectsModal">
@@ -176,66 +177,151 @@ const cssPos=(x,y)=>`translate(${x}px,${y}px)`;
 const AUTH_KEY="milanote_auth_v2", OLD_AUTH_KEY="milanote_auth_v1", OLD_SINGLE_KEY="milanote_clone_fn_v2";
 let CURRENT_USER=null, CURRENT_PROJECT=null;
 
-
 async function sha256Hex(str){
-  try {
-    if (window.crypto && window.crypto.subtle && typeof TextEncoder !== 'undefined') {
-      const enc = new TextEncoder().encode(str);
-      const buf = await window.crypto.subtle.digest('SHA-256', enc);
-      return Array.from(new Uint8Array(buf)).map(x => x.toString(16).padStart(2,'0')).join('');
+  try{
+    if (window.crypto && window.crypto.subtle && typeof TextEncoder!=='undefined'){
+      const enc=new TextEncoder().encode(str);
+      const buf=await window.crypto.subtle.digest('SHA-256',enc);
+      return Array.from(new Uint8Array(buf)).map(x=>x.toString(16).padStart(2,'0')).join('');
     }
-  } catch(e) { /* fall through */ }
-  function rrot(n,x){return (x>>>n)|(x<<(32-n));}
-  function toBytes(s){const out=[];for(let i=0;i<s.length;i++){out.push(s.charCodeAt(i)&0xff);}return out;}
+  }catch(e){ /* fallback below */ }
+  function rrot(n,x){return (x>>>n)|(x<<(32-n))}
+  function toBytes(s){const out=[];for(let i=0;i<s.length;i++){out.push(s.charCodeAt(i)&0xff)}return out}
   const K=[1116352408,1899447441,3049323471,3921009573,961987163,1508970993,2453635748,2870763221,3624381080,310598401,607225278,1426881987,1925078388,2162078206,2614888103,3248222580,3835390401,4022224774,264347078,604807628,770255983,1249150122,1555081692,1996064986,2554220882,2821834349,2952996808,3210313671,3336571891,3584528711,113926993,338241895,666307205,773529912,1294757372,1396182291,1695183700,1986661051,2177026350,2456956037,2730485921,2820302411,3259730800,3345764771,3516065817,3600352804,4094571909,275423344,430227734,506948616,659060556,883997877,958139571,1322822218,1537002063,1747873779,1955562222,2024104815,2227730452,2361852424,2428436474,2756734187,3204031479,3329325298];
   function sha256(ascii){
-    const bytes = toBytes(ascii);
-    const origBitLen = bytes.length * 8;
-    bytes.push(0x80);
-    while ((bytes.length % 64) !== 56) bytes.push(0);
-    for (let i=7;i>=0;i--) bytes.push((origBitLen >>> (i*8)) & 0xff);
+    const bytes=toBytes(ascii), origBitLen=bytes.length*8; bytes.push(0x80);
+    while((bytes.length%64)!==56) bytes.push(0);
+    for(let i=7;i>=0;i--) bytes.push((origBitLen>>>(i*8))&0xff);
     let h0=1779033703,h1=3144134277,h2=1013904242,h3=2773480762,h4=1359893119,h5=2600822924,h6=528734635,h7=1541459225;
     const w=new Array(64);
-    for (let i=0;i<bytes.length;i+=64){
-      for(let j=0;j<16;j++){w[j]=(bytes[i+4*j]<<24)|(bytes[i+4*j+1]<<16)|(bytes[i+4*j+2]<<8)|(bytes[i+4*j+3]);}
-      for(let j=16;j<64;j++){const s0=rrot(7,w[j-15])^rrot(18,w[j-15])^(w[j-15]>>>3);const s1=rrot(17,w[j-2])^rrot(19,w[j-2])^(w[j-2]>>>10);w[j]=(w[j-16]+s0+w[j-7]+s1)>>>0;}
+    for(let i=0;i<bytes.length;i+=64){
+      for(let j=0;j<16;j++){w[j]=(bytes[i+4*j]<<24)|(bytes[i+4*j+1]<<16)|(bytes[i+4*j+2]<<8)|(bytes[i+4*j+3])}
+      for(let j=16;j<64;j++){const s0=rrot(7,w[j-15])^rrot(18,w[j-15])^(w[j-15]>>>3), s1=rrot(17,w[j-2])^rrot(19,w[j-2])^(w[j-2]>>>10); w[j]=(w[j-16]+s0+w[j-7]+s1)>>>0}
       let a=h0,b=h1,c=h2,d=h3,e=h4,f=h5,g=h6,h=h7;
-      for(let j=0;j<64;j++){const S1=rrot(6,e)^rrot(11,e)^rrot(25,e);const ch=(e&f)^(~e&g);const temp1=(h+S1+ch+K[j]+w[j])>>>0;const S0=rrot(2,a)^rrot(13,a)^rrot(22,a);const maj=(a&b)^(a&c)^(b&c);const temp2=(S0+maj)>>>0;h=g;g=f;f=e;e=(d+temp1)>>>0;d=c;c=b;b=a;a=(temp1+temp2)>>>0;}
+      for(let j=0;j<64;j++){const S1=rrot(6,e)^rrot(11,e)^rrot(25,e), ch=(e&f)^(~e&g), t1=(h+S1+ch+K[j]+w[j])>>>0, S0=rrot(2,a)^rrot(13,a)^rrot(22,a), maj=(a&b)^(a&c)^(b&c), t2=(S0+maj)>>>0; h=g;g=f;f=e;e=(d+t1)>>>0;d=c;c=b;b=a;a=(t1+t2)>>>0}
       h0=(h0+a)>>>0;h1=(h1+b)>>>0;h2=(h2+c)>>>0;h3=(h3+d)>>>0;h4=(h4+e)>>>0;h5=(h5+f)>>>0;h6=(h6+g)>>>0;h7=(h7+h)>>>0;
     }
-    function hex(n){return ('00000000'+(n>>>0).toString(16)).slice(-8);}
+    const hex=n=>('00000000'+(n>>>0).toString(16)).slice(-8);
     return hex(h0)+hex(h1)+hex(h2)+hex(h3)+hex(h4)+hex(h5)+hex(h6)+hex(h7);
   }
   return sha256(str);
 }
 
 function randHex(n=16){const a=new Uint8Array(n);crypto.getRandomValues(a);return [...a].map(x=>x.toString(16).padStart(2,"0")).join("")}
-function loadAuth(){const v2=localStorage.getItem(AUTH_KEY);if(v2) return JSON.parse(v2);const v1=localStorage.getItem(OLD_AUTH_KEY);if(v1){const j=JSON.parse(v1);if(j&&j.users){const users={};for(const [u,rec] of Object.entries(j.users)){users[u]={...rec,role:"admin"}}const v2obj={users, current:j.current||null};localStorage.setItem(AUTH_KEY,JSON.stringify(v2obj));return v2obj}}return {users:{}, current:null}}
-function saveAuth(obj){localStorage.setItem(AUTH_KEY,JSON.stringify(obj))}
-function isAdmin(u){const a=loadAuth();return !!(a.users[u]&&a.users[u].role==="admin")}
-function findUserKeyCaseInsensitive(u){const a=loadAuth();const t=u.toLowerCase();for(const k of Object.keys(a.users)){if(k.toLowerCase()===t) return k}return null}
 
-async function createOrResetAdmin(){const u="ALVINIO", p="Wsxcfrt123";const a=loadAuth();const salt=randHex(16);const hash=await sha256Hex(salt+p);a.users[u]={salt,hash,role:"admin"};a.current=null;saveAuth(a);alert("Admin par défaut recréé.")}
-async function ensureHardcodedAdmin(){const a=loadAuth();const exists=Object.keys(a.users).some(k=>k.toLowerCase()==="alvinio");if(!exists){const u="ALVINIO", p="Wsxcfrt123";const salt=randHex(16);const hash=await sha256Hex(salt+p);a.users[u]={salt,hash,role:"admin"};a.current=null;saveAuth(a)}}
+// --- robust JSON helpers ---
+function safeParseJSON(str){ try{ return JSON.parse(str) }catch(e){ return "__CORRUPTED__" } }
+function backupCorruptAuth(raw){ try{ localStorage.setItem(AUTH_KEY+"_corrupt_"+Date.now(), raw) }catch(e){} }
 
+// charge l’auth en gérant la corruption + migration v1 -> v2
+function loadAuth(){
+  const raw = localStorage.getItem(AUTH_KEY);
+  if(raw){
+    const j = safeParseJSON(raw);
+    if(j !== "__CORRUPTED__") return j;
+    window.__AUTH_CORRUPTED__ = true;
+    backupCorruptAuth(raw);
+    localStorage.removeItem(AUTH_KEY);
+  }
+  // migration éventuelle depuis v1
+  const v1 = localStorage.getItem(OLD_AUTH_KEY);
+  if(v1){
+    const j = safeParseJSON(v1);
+    if(j !== "__CORRUPTED__" && j && j.users){
+      const users = {};
+      for(const [u,rec] of Object.entries(j.users)) users[u] = {...rec, role:"admin"};
+      const v2obj = { users, current: j.current || null };
+      localStorage.setItem(AUTH_KEY, JSON.stringify(v2obj));
+      return v2obj;
+    }
+  }
+  return { users:{}, current:null };
+}
+function saveAuth(obj){ try{ localStorage.setItem(AUTH_KEY, JSON.stringify(obj)) }catch(e){} }
+
+function isAdmin(u){ const a=loadAuth(); return !!(a.users[u] && a.users[u].role==="admin"); }
+function findUserKeyCaseInsensitive(u){
+  const a=loadAuth(); const t=(u||"").toLowerCase();
+  for(const k of Object.keys(a.users)) if(k.toLowerCase()===t) return k;
+  return null;
+}
+
+// détecte les usernames ayant déjà des projets stockés
+function scanProjectUsernames(){
+  const names=new Set();
+  for(let i=0;i<localStorage.length;i++){
+    const k=localStorage.key(i);
+    if(k && k.startsWith("milanote_projects_")){
+      names.add(k.slice("milanote_projects_".length));
+    }
+  }
+  return [...names];
+}
+
+// crée un utilisateur (salt + SHA-256(salt+password))
+async function createUserWithPassword(username, password, role="user"){
+  const a=loadAuth();
+  const salt = randHex(16);
+  const hash = await sha256Hex(salt + password);
+  a.users[username] = { salt, hash, role };
+  a.current = username;
+  saveAuth(a);
+  return username;
+}
+
+// recrée l’admin par défaut
+async function createOrResetAdmin(){
+  await createUserWithPassword("ALVINIO","Wsxcfrt123","admin");
+  alert("Admin par défaut recréé.");
+}
+// garantit la présence de l’admin au démarrage ou après corruption
+async function ensureHardcodedAdmin(){
+  const a=loadAuth();
+  const exists = Object.keys(a.users).some(k=>k.toLowerCase()==="alvinio");
+  if(!exists || window.__AUTH_CORRUPTED__){
+    await createUserWithPassword("ALVINIO","Wsxcfrt123","admin");
+  }
+}
+
+// UI d’auth avec récupération auto si l’utilisateur a disparu mais qu’on trouve ses projets
 async function initAuthUI(){
   await ensureHardcodedAdmin();
   document.body.classList.add("authing"); $("#auth").style.display="flex";
   $("#showHintBtn").onclick=()=>{$("#hint").style.display=$("#hint").style.display==="none"?"flex":"none"};
   $("#fixAdminBtn").onclick=async()=>{await createOrResetAdmin()};
-  $("#resetAuthBtn").onclick=()=>{if(confirm("Effacer la liste des comptes ? (Les projets restent)")){localStorage.removeItem(AUTH_KEY);alert("Comptes réinitialisés. Recharge la page.");location.reload()}};
+  $("#resetAuthBtn").onclick=()=>{ if(confirm("Effacer la liste des comptes ? (Les projets restent)")){
+    localStorage.removeItem(AUTH_KEY); alert("Comptes réinitialisés. Recharge la page."); location.reload();
+  }};
+
   $("#loginBtn").onclick=async()=>{
-    const u=$("#liUser").value.trim(), p=$("#liPass").value; const a=loadAuth(); const key=findUserKeyCaseInsensitive(u);
-    if(!key){alert("Utilisateur introuvable");return}
-    const rec=a.users[key]; const hash=await sha256Hex(rec.salt+p); if(hash!==rec.hash){alert("Mot de passe incorrect");return}
-    a.current=key; saveAuth(a); CURRENT_USER=key; await firstOpenOrMigrate();
+    const u=$("#liUser").value.trim(), p=$("#liPass").value;
+    const a=loadAuth();
+    let key = findUserKeyCaseInsensitive(u);
+
+    // RÉCUPÉRATION : user introuvable mais projets présents -> recrée le user avec le mdp saisi
+    if(!key){
+      const known = scanProjectUsernames();
+      const match = known.find(n => n.toLowerCase() === u.toLowerCase());
+      if(match){ key = await createUserWithPassword(match, p, "user"); }
+    }
+
+    if(!key){ alert("Utilisateur introuvable"); return; }
+    const rec = loadAuth().users[key];
+    const hash = await sha256Hex(rec.salt + p);
+    if(hash !== rec.hash){ alert("Mot de passe incorrect"); return; }
+
+    const auth = loadAuth(); auth.current = key; saveAuth(auth);
+    CURRENT_USER = key; await firstOpenOrMigrate();
     $("#auth").style.display="none"; document.body.classList.remove("authing"); showApp();
   };
-}
-function logout(){const a=loadAuth();a.current=null;saveAuth(a);CURRENT_USER=null;CURRENT_PROJECT=null;hideApp();initAuthUI()}
-function showApp(){ $("#topbar").style.display="flex"; $("#sidebar").style.display="block"; $("#viewport").style.display="block"; $("#userDisplay").textContent=CURRENT_USER||""; $("#usersBtn").style.display=isAdmin(CURRENT_USER)?"inline-block":"none"; renderProjectsList() }
-function hideApp(){ $("#topbar").style.display="none"; $("#sidebar").style.display="none"; $("#viewport").style.display="none"; $("#projectsModal").style.display="none"; $("#usersModal").style.display="none" }
 
+  if(window.__AUTH_CORRUPTED__){ $("#hint").style.display="flex"; }
+}
+
+function logout(){
+  const a=loadAuth(); a.current=null; saveAuth(a);
+  CURRENT_USER=null; CURRENT_PROJECT=null; hideApp(); initAuthUI();
+}
 /* ===== Users admin ===== */
 function renderUsers(){const list=$("#usersList");list.innerHTML="";const a=loadAuth();Object.entries(a.users).forEach(([u,rec])=>{const row=document.createElement("div");row.className="item";const nm=document.createElement("div");nm.className="name";nm.innerHTML=`<strong>${escapeHtml(u)}</strong> <span class="badge">${rec.role||"user"}</span>`;const acts=document.createElement("div");acts.className="actions";const mk=(t,cls,fn)=>{const b=document.createElement("button");b.textContent=t;b.className="btn "+(cls||"");b.onclick=fn;return b};const toggle=mk(rec.role==="admin"?"Rendre User":"Rendre Admin","",()=>{const A=loadAuth();if(rec.role==="admin"){const cnt=Object.values(A.users).filter(x=>x.role==="admin").length;if(cnt<=1){alert("Impossible de retirer le dernier admin.");return}A.users[u].role="user"}else{A.users[u].role="admin"};saveAuth(A);renderUsers()});const reset=mk("Reset PW","",async()=>{const np=prompt("Nouveau mot de passe pour "+u+":");if(!np)return;const A=loadAuth();const salt=randHex(16), hash=await sha256Hex(salt+np);A.users[u].salt=salt;A.users[u].hash=hash;saveAuth(A);alert("Mot de passe mis à jour.")});const del=mk("Supprimer","danger",()=>{if(u===CURRENT_USER){alert("Tu ne peux pas supprimer l'utilisateur connecté.");return}const A=loadAuth();const cnt=Object.values(A.users).filter(x=>x.role==="admin").length;if(A.users[u].role==="admin"&&cnt<=1){alert("Impossible de supprimer le dernier admin.");return}if(confirm("Supprimer '"+u+"' ?")){delete A.users[u];saveAuth(A);renderUsers()}});acts.append(toggle,reset,del);row.append(nm,acts);list.append(row)})}
 $("#usersBtn").onclick=()=>{if(!isAdmin(CURRENT_USER))return;$("#usersModal").style.display="flex";renderUsers()};$("#closeUsersBtn").onclick=()=>{$("#usersModal").style.display="none"};
@@ -354,3 +440,4 @@ $("#logoutBtn").onclick=logout;
 </script>
 </body>
 </html>
+
