@@ -420,5 +420,89 @@ $("#logoutBtn").onclick=logout;
 })();
 </script>
 
+
+<!-- === Import & Save fix + legacy migration === -->
+<script>
+(function(){
+  // Helper: safe id generator if not present
+  if (typeof window.idn !== 'function') {
+    window.idn = function(){ return Math.random().toString(36).slice(2) };
+  }
+
+  // Ensure we can render the list if function exists
+  function safeRenderProjects(){ try { if (typeof renderProjectsList === 'function') renderProjectsList(); } catch(e){} }
+
+  // Wrap original loadBoard to migrate any legacy localStorage board to IDB once
+  const __origLoadBoard = window.loadBoard;
+  window.loadBoard = async function(){
+    if (!window.CURRENT_USER || !window.CURRENT_PROJECT) return __origLoadBoard ? __origLoadBoard() : undefined;
+    const key = boardKey(window.CURRENT_USER, window.CURRENT_PROJECT.id);
+    try {
+      const idbVal = await (window.idbGet ? idbGet('boards', key) : Promise.resolve(null));
+      if (idbVal == null) {
+        const legacy = localStorage.getItem(key);
+        if (legacy) {
+          try { await idbSet('boards', key, legacy); localStorage.removeItem(key); } catch(e){ console.warn('migrate->idb failed', e); }
+        }
+      }
+    } catch(e){}
+    return __origLoadBoard ? __origLoadBoard() : undefined;
+  };
+
+  // Intercept Import to always create a proper project and save to IDB
+  const input = document.querySelector('#importInput');
+  if (input) {
+    input.addEventListener('change', async (e) => {
+      try {
+        const file = e.target && e.target.files && e.target.files[0];
+        if (!file) return;
+        // Stop other handlers to avoid double-handling
+        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+
+        const text = await file.text();
+        let json;
+        try { json = JSON.parse(text); } catch { alert('JSON invalide'); e.target.value=''; return; }
+
+        // auto-detect board shape
+        const board = (json && json.cards) ? json :
+                      (json && json.data && json.data.cards ? json.data : json.state || json);
+
+        // Ensure we have a user; if not, keep current flow
+        if (!window.CURRENT_USER) { alert('Connecte-toi d'abord.'); e.target.value=''; return; }
+
+        // Create a new project entry
+        const name = (board && board.title ? String(board.title) : String(file.name).replace(/\.json$/i,'')).trim() || 'Projet importé';
+        let projects = loadProjects(window.CURRENT_USER);
+        if (!projects || !Array.isArray(projects.items)) projects = { activeId:null, items:[] };
+
+        const proj = { id: idn(), name, createdAt: Date.now(), updatedAt: Date.now() };
+        projects.items.push(proj);
+        projects.activeId = proj.id;
+        saveProjects(window.CURRENT_USER, projects);
+
+        window.CURRENT_PROJECT = proj;
+        window.state = board || (typeof emptyState === 'function' ? emptyState() : {});
+
+        try {
+          await idbSet('boards', boardKey(window.CURRENT_USER, proj.id), JSON.stringify(window.state));
+        } catch(e) {
+          console.error('save to idb failed', e);
+        }
+
+        // Update UI
+        try { applyState(); applyTransform && applyTransform(); } catch(e){}
+        safeRenderProjects();
+
+        alert('Projet importé et sauvegardé.');
+        e.target.value='';
+      } catch(err) {
+        console.error(err);
+        alert('Import échoué.');
+      }
+    }, { capture: true });
+  }
+})();
+</script>
+
 </body>
 </html>
