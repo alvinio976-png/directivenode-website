@@ -740,5 +740,119 @@ $("#logoutBtn").onclick=logout;
 })();
 </script>
 
+
+<!-- === Recovery (no-auth) + ID fix by name === -->
+<script>
+(function(){
+  function parseLegacyKey(k){
+    // k starts with 'milanote_board_'
+    const tail = k.slice('milanote_board_'.length);
+    const firstUnderscore = tail.indexOf('_');
+    if (firstUnderscore === -1) return { user: 'RECOVERED', projId: tail };
+    const user = tail.slice(0, firstUnderscore);
+    const projId = tail.slice(firstUnderscore+1);
+    return { user, projId };
+  }
+  function lsGet(k){ try{ return localStorage.getItem(k); }catch{ return null; } }
+  function lsSet(k,v){ try{ localStorage.setItem(k, v); }catch{} }
+  function loadProjList(user){
+    if (typeof loadProjects === 'function'){
+      try { const p = loadProjects(user); if (p && Array.isArray(p.items)) return p; } catch{}
+    }
+    const raw = lsGet('milanote_projects_'+user);
+    if (raw){ try{ const p=JSON.parse(raw); if (p && Array.isArray(p.items)) return p; }catch{} }
+    return { activeId:null, items:[] };
+  }
+  function saveProjList(user, p){
+    if (typeof saveProjects === 'function'){
+      try { saveProjects(user, p); return; } catch{}
+    }
+    lsSet('milanote_projects_'+user, JSON.stringify(p));
+  }
+  function findById(p, id){ return p.items.find(i=>i.id===id); }
+  function findByName(p, name){
+    const n = String(name||'').toLowerCase().trim();
+    if (!n) return null;
+    return p.items.find(i => String(i.name||'').toLowerCase().trim() === n);
+  }
+  function addProj(p, id, name){
+    const now = Date.now();
+    const it = { id, name: name||('Récupéré '+new Date(now).toLocaleString()), createdAt: now, updatedAt: now };
+    p.items.push(it);
+    if (!p.activeId) p.activeId = id;
+    return it;
+  }
+  async function recoverAllNoAuth(){
+    const legacyKeys = [];
+    for (let i=0;i<localStorage.length;i++){
+      const k = localStorage.key(i);
+      if (k && k.indexOf('milanote_board_')===0) legacyKeys.push(k);
+    }
+    if (!legacyKeys.length){ alert("Aucun ancien board trouvé dans localStorage."); return; }
+
+    const users = Array.from(new Set(legacyKeys.map(parseLegacyKey).map(o=>o.user)));
+    // If no CURRENT_USER, pick the only user or set the first found
+    if (!window.CURRENT_USER){
+      window.CURRENT_USER = users[0] || 'RECOVERED';
+      console.warn('CURRENT_USER was not set. Using:', window.CURRENT_USER);
+    }
+
+    let migrated=0, fixedIds=0, skipped=0, errors=0;
+    for (const k of legacyKeys){
+      const { user, projId } = parseLegacyKey(k);
+      const raw = lsGet(k); if (!raw || raw.length<5){ skipped++; continue; }
+      // guess a human name from JSON
+      let name = projId;
+      try { const j=JSON.parse(raw); name = j.title || j.name || j.meta?.name || projId; } catch{}
+
+      // projects list for that user
+      let p = loadProjList(user);
+      let it = findById(p, projId);
+      if (!it){
+        // maybe same name but different id -> fix id so it matches stored board
+        const byName = findByName(p, name);
+        if (byName && byName.id !== projId){
+          byName.id = projId; // fix id to match board key
+          byName.updatedAt = Date.now();
+          it = byName; fixedIds++;
+        } else {
+          it = addProj(p, projId, name);
+        }
+      }
+
+      // write to IDB using original user+projId
+      try {
+        await idbSet('boards', boardKey(user, projId), raw);
+        migrated++;
+      } catch(e){ console.warn('IDB write failed for', k, e); errors++; }
+
+      // persist projects list
+      saveProjList(user, p);
+    }
+
+    try { if (typeof renderProjectsList==='function') renderProjectsList(); } catch{}
+    alert(`Récupération (sans login) terminée: ${migrated} migré(s), ${fixedIds} id corrigé(s), ${skipped} ignoré(s), ${errors} erreur(s).`);
+  }
+
+  // Add/replace the floating button behavior to no-auth recover
+  (function ensureButton(){
+    let b = document.getElementById('rec-btn-fixed');
+    if (!b){
+      b = document.createElement('button');
+      b.id='rec-btn-fixed';
+      b.textContent='Récupérer';
+      b.style.cssText='position:fixed;bottom:14px;left:14px;z-index:999999;padding:8px 12px;border-radius:8px;border:none;cursor:pointer;background:rgba(60,130,255,.95);color:#fff;box-shadow:0 6px 18px rgba(0,0,0,.25);font-size:14px;';
+      document.body.appendChild(b);
+    }
+    b.onclick = recoverAllNoAuth;
+  })();
+
+  // Hotkey override
+  document.addEventListener('keydown', (e)=>{
+    if ((e.ctrlKey||e.metaKey) && e.altKey && (e.key==='r'||e.key==='R')){ e.preventDefault(); recoverAllNoAuth(); }
+  });
+})();
+</script>
+
 </body>
 </html>
