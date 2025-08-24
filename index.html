@@ -1233,5 +1233,254 @@ $("#logoutBtn").onclick=logout;
 })();
 </script>
 
+
+<!-- === DIAGNOSE + REPAIR PANEL (scan all + one-click fixes) === -->
+<style>
+  #diag-btn{position:fixed;bottom:14px;left:430px;z-index:1000001;padding:8px 12px;border-radius:8px;border:none;cursor:pointer;background:#7c3aed;color:#fff;box-shadow:0 6px 18px rgba(0,0,0,.25);font-size:14px;}
+  #diag-modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:1000002}
+  #diag-card{background:#101114;color:#e7e7ea;min-width:780px;max-width:90vw;max-height:80vh;overflow:auto;border-radius:14px;box-shadow:0 24px 44px rgba(0,0,0,.45);padding:18px;border:1px solid #2b2d33}
+  #diag-card h3{margin:0 0 8px 0}
+  #diag-card .small{opacity:.75;font-size:12px;margin-bottom:12px}
+  #diag-table{width:100%;border-collapse:collapse;font-size:13px}
+  #diag-table th,#diag-table td{border-bottom:1px solid #2b2d33;padding:6px 8px;text-align:left;vertical-align:top}
+  #diag-table th{position:sticky;top:0;background:#0f1013}
+  .pill{display:inline-block;padding:2px 6px;border-radius:999px;font-size:11px}
+  .ok{background:#064e3b;color:#d1fae5}
+  .warn{background:#78350f;color:#fde68a}
+  .bad{background:#7f1d1d;color:#fecaca}
+  .muted{opacity:.6}
+  .row-actions button{margin-right:6px;margin-top:4px;padding:4px 8px;border:none;border-radius:8px;cursor:pointer}
+  .act{background:#2563eb;color:#fff}
+  .fix{background:#10b981;color:#fff}
+  .danger{background:#ef4444;color:#fff}
+  #diag-actions{display:flex;gap:8px;margin:8px 0 12px;justify-content:flex-end}
+</style>
+<div id="diag-modal"><div id="diag-card">
+  <h3>Diagnostic & Réparation</h3>
+  <div class="small">Scan complet: projets (localStorage) + boards (IndexedDB & localStorage). Boutons pour réparer et ouvrir.</div>
+  <div id="diag-actions">
+    <button class="fix" id="btn-fix-all">Réparer tout</button>
+    <button class="act" id="btn-rescan">Rescanner</button>
+    <button class="danger" onclick="document.getElementById('diag-modal').style.display='none'">Fermer</button>
+  </div>
+  <table id="diag-table">
+    <thead><tr>
+      <th>Utilisateur</th><th>Projet (nom)</th><th>Projet ID</th>
+      <th>Board IDB</th><th>Board localStorage</th><th>État</th><th>Actions</th>
+    </tr></thead>
+    <tbody id="diag-body"></tbody>
+  </table>
+</div></div>
+<button id="diag-btn">Diagnostic</button>
+<script>
+(function(){
+  const TAG='milanote_board_';
+  // ---- Ensure IDB helpers exist ----
+  async function ensureDB(){
+    return await new Promise((res,rej)=>{
+      const r = indexedDB.open('directivenode-db', 1);
+      r.onupgradeneeded = ()=>{
+        const db = r.result;
+        if (!db.objectStoreNames.contains('boards')) db.createObjectStore('boards');
+        if (!db.objectStoreNames.contains('assets')) db.createObjectStore('assets');
+      };
+      r.onsuccess = ()=>res(r.result);
+      r.onerror = ()=>rej(r.error);
+    });
+  }
+  async function idbGet2(key){
+    const db = await ensureDB();
+    return await new Promise((res,rej)=>{
+      const tx = db.transaction('boards','readonly'); const st=tx.objectStore('boards');
+      const rq = st.get(key);
+      rq.onsuccess = ()=>res(rq.result ?? null);
+      rq.onerror = ()=>res(null);
+    });
+  }
+  async function idbSet2(key,val){
+    const db = await ensureDB();
+    return await new Promise((res,rej)=>{
+      const tx = db.transaction('boards','readwrite'); const st=tx.objectStore('boards');
+      const rq = st.put(val, key);
+      rq.onsuccess = ()=>res(true);
+      rq.onerror = ()=>res(false);
+    });
+  }
+  async function idbListKeys(){
+    const db = await ensureDB();
+    return await new Promise((res,rej)=>{
+      const tx = db.transaction('boards','readonly'); const st=tx.objectStore('boards');
+      const keys=[]; const rq=st.openCursor();
+      rq.onsuccess=e=>{ const c=e.target.result; if(c){ keys.push(c.key); c.continue(); } else res(keys); };
+      rq.onerror=()=>rej(rq.error);
+    });
+  }
+  function parseKey(k){
+    k=String(k||''); if (!k.startsWith(TAG)) return {user:'UNKNOWN', projId:k};
+    const tail=k.slice(TAG.length);
+    const i=tail.indexOf('_'); if (i<0) return {user:'UNKNOWN', projId:tail};
+    return {user:tail.slice(0,i), projId:tail.slice(i+1)};
+  }
+
+  // ---- Projects list helpers ----
+  function loadProjList(user){
+    try{ const p = loadProjects(user); if (p && Array.isArray(p.items)) return p; }catch{}
+    const raw = localStorage.getItem('milanote_projects_'+user);
+    if (raw){ try{ const p=JSON.parse(raw); if (p && Array.isArray(p.items)) return p; }catch{} }
+    return {activeId:null, items:[]};
+  }
+  function saveProjList(user, p){
+    try{ saveProjects(user,p); }catch{}
+    try{ localStorage.setItem('milanote_projects_'+user, JSON.stringify(p)); }catch{}
+  }
+  function projById(p,id){ return p.items.find(i=>i.id===id); }
+  function projByName(p,name){
+    const n = String(name||'').toLowerCase().trim(); if (!n) return null;
+    return p.items.find(i => String(i.name||'').toLowerCase().trim()===n);
+  }
+
+  // ---- Scan everything ----
+  async function scanAll(){
+    const tbody = document.getElementById('diag-body'); tbody.innerHTML='';
+    const users = new Set();
+
+    // discover users from project lists
+    for (let i=0;i<localStorage.length;i++){
+      const k=localStorage.key(i); if (!k) continue;
+      if (k.startsWith('milanote_projects_')) users.add(k.replace('milanote_projects_',''));
+    }
+    // discover users from IDB keys
+    try{
+      const keys = await idbListKeys();
+      keys.forEach(k=>users.add(parseKey(k).user));
+    }catch{}
+    // discover users from legacy LS boards
+    for (let i=0;i<localStorage.length;i++){
+      const k=localStorage.key(i); if (!k || !k.startsWith(TAG)) continue;
+      users.add(parseKey(k).user);
+    }
+    if (users.size===0) users.add(window.CURRENT_USER || 'DEFAULT');
+
+    const rows=[];
+    for (const user of users){
+      const p = loadProjList(user);
+      // 1) Add rows for items in projects list
+      for (const it of p.items){
+        const key = TAG+user+'_'+it.id;
+        const idb = await idbGet2(key);
+        const ls  = localStorage.getItem(key);
+        const status = idb ? 'OK:IDB' : (ls ? 'LegacyLS' : 'Missing');
+        rows.push({user, name:it.name, id:it.id, idb:!!idb, ls:!!ls, status, source:'projects'});
+      }
+      // 2) Add rows for boards not present in projects list
+      const idbKeys = await idbListKeys();
+      for (const k of idbKeys){
+        const info = parseKey(k);
+        if (info.user!==user) continue;
+        if (!projById(p, info.projId)){
+          rows.push({user, name:'(depuis IDB)', id:info.projId, idb:true, ls:false, status:'Orphelin(IDB)', source:'idb-only'});
+        }
+      }
+      for (let i=0;i<localStorage.length;i++){
+        const k=localStorage.key(i); if (!k || !k.startsWith(TAG)) continue;
+        const info=parseKey(k); if (info.user!==user) continue;
+        if (!projById(p, info.projId)){
+          rows.push({user, name:'(depuis LS)', id:info.projId, idb:false, ls:true, status:'Orphelin(LS)', source:'ls-only'});
+        }
+      }
+    }
+
+    // render
+    for (const r of rows){
+      const tr=document.createElement('tr');
+      function pill(ok,text,cls){ return `<span class="pill ${cls|| (ok?'ok':'bad')}">${text}</span>` }
+      const idbCell = r.idb ? pill(true,'oui','ok') : pill(false,'non','bad');
+      const lsCell  = r.ls  ? pill(true,'oui','warn') : `<span class="muted">non</span>`;
+      let etat = r.status;
+      if (etat==='Missing') etat = '<span class="pill bad">Board manquant</span>';
+      else if (etat==='LegacyLS') etat = '<span class="pill warn">À migrer LS→IDB</span>';
+      else if (etat.startsWith('Orphelin')) etat = `<span class="pill warn">${etat}</span>`;
+      else etat = `<span class="pill ok">${etat}</span>`;
+
+      tr.innerHTML = `
+        <td>${r.user}</td>
+        <td>${r.name}</td>
+        <td><code>${r.id}</code></td>
+        <td>${idbCell}</td>
+        <td>${lsCell}</td>
+        <td>${etat}</td>
+        <td class="row-actions">
+          <button class="fix" data-act="fix" data-user="${r.user}" data-id="${r.id}">Réparer</button>
+          <button class="act" data-act="open" data-user="${r.user}" data-id="${r.id}">Ouvrir</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    }
+  }
+
+  async function doFix(user, id){
+    const key = TAG+user+'_'+id;
+    let ok=false;
+    const p = loadProjList(user);
+    // 1) if legacy LS exists but no IDB -> migrate
+    const ls = localStorage.getItem(key);
+    const idb = await idbGet2(key);
+    if (ls && !idb){ ok = await idbSet2(key, ls); }
+    // 2) if neither exists -> create empty board
+    let nowIdb = await idbGet2(key);
+    if (!nowIdb){
+      const empty = (typeof emptyState==='function') ? JSON.stringify(emptyState()) : JSON.stringify({cards:[]});
+      ok = await idbSet2(key, empty);
+      nowIdb = empty;
+    }
+    // 3) ensure project exists in list
+    if (!projById(p, id)){
+      let name=''; try{ const j=JSON.parse(nowIdb); name = j.title || j.name || ''; }catch{}
+      if (!name) name = id;
+      p.items.push({ id, name, createdAt: Date.now(), updatedAt: Date.now() });
+      if (!p.activeId) p.activeId = id;
+      saveProjList(user, p);
+    }
+    // 4) open
+    await doOpen(user, id);
+  }
+
+  async function doOpen(user, id){
+    window.CURRENT_USER = user;
+    const p = loadProjList(user);
+    const it = projById(p, id) || { id, name:id };
+    window.CURRENT_PROJECT = it;
+    try{ await window.loadBoard(); }
+    catch(e){
+      try{
+        const v = await idbGet2(TAG+user+'_'+id);
+        window.state = typeof v==='string' ? JSON.parse(v) : v;
+        applyState(); applyTransform && applyTransform();
+      }catch(err){ console.warn('Open fallback failed', err); }
+    }
+    document.getElementById('diag-modal').style.display='none';
+  }
+
+  // Button wiring
+  document.getElementById('diag-btn').onclick = ()=>{ document.getElementById('diag-modal').style.display='flex'; scanAll(); };
+  document.getElementById('btn-rescan').onclick = ()=>scanAll();
+  document.getElementById('btn-fix-all').onclick = async ()=>{
+    const rows=[...document.querySelectorAll('#diag-body tr')];
+    for (const row of rows){
+      const user = row.children[0].textContent.trim();
+      const id   = row.children[2].textContent.trim();
+      await doFix(user, id);
+    }
+    alert('Réparation terminée. Rouvre le panneau si besoin.');
+  };
+  document.getElementById('diag-body').addEventListener('click', async (e)=>{
+    const btn = e.target.closest('button'); if (!btn) return;
+    const act = btn.dataset.act, user=btn.dataset.user, id=btn.dataset.id;
+    if (act==='fix') await doFix(user, id);
+    if (act==='open') await doOpen(user, id);
+  });
+})();
+</script>
+
 </body>
 </html>
