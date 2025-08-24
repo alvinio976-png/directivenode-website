@@ -504,5 +504,92 @@ $("#logoutBtn").onclick=logout;
 })();
 </script>
 
+
+<!-- === Fix: open old projects + import into current project === -->
+<script>
+(function(){
+  async function ensureMigrated(user, projId){
+    const key = boardKey(user, projId);
+    try {
+      const inIdb = await idbGet('boards', key);
+      if (inIdb != null) return true;
+    } catch(e){}
+    // Try exact legacy key
+    let raw = null;
+    try { raw = localStorage.getItem(key); } catch(e){}
+    // Fallback: scan for any key containing projId
+    if (!raw) {
+      try {
+        for (let i=0;i<localStorage.length;i++){
+          const k = localStorage.key(i);
+          if (!k) continue;
+          if (k.endsWith(projId) || k.includes(projId)){
+            const v = localStorage.getItem(k);
+            if (v && v.length > (raw?.length||0)) raw = v;
+          }
+        }
+      } catch(e){}
+    }
+    if (raw){
+      try { await idbSet('boards', key, raw); localStorage.removeItem(key); return true; } catch(e){}
+    }
+    return false;
+  }
+
+  // Hook "Ouvrir" button: after original handler sets CURRENT_PROJECT, we ensure migration + force load
+  document.addEventListener('click', (e)=>{
+    const btn = e.target && (e.target.closest ? e.target.closest('button') : null);
+    if (!btn) return;
+    const label = (btn.textContent || '').trim().toLowerCase();
+    if (label !== 'ouvrir') return;
+    setTimeout(async ()=>{
+      try {
+        if (window.CURRENT_USER && window.CURRENT_PROJECT){
+          await ensureMigrated(window.CURRENT_USER, window.CURRENT_PROJECT.id);
+          await window.loadBoard();
+        }
+      } catch(err){ console.warn('force open after ensureMigrated failed', err); }
+    }, 0);
+  });
+
+  // Import JSON -> save into current project if it exists
+  (function(){
+    const input = document.querySelector('#importInput');
+    if (!input) return;
+    input.addEventListener('change', async (e)=>{
+      const file = e.target?.files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        let json; try { json = JSON.parse(text); } catch { alert('JSON invalide'); e.target.value=''; return; }
+        const board = (json&&json.cards) ? json : (json?.data?.cards ? json.data : json.state || json);
+        if (!window.CURRENT_USER){ alert("Connecte-toi d'abord."); e.target.value=''; return; }
+        if (!window.CURRENT_PROJECT){
+          // create new only if no current
+          let projects = loadProjects(window.CURRENT_USER) || {activeId:null, items:[]};
+          const name = (board?.title || file.name.replace(/\.json$/i,'')).trim() || 'Projet importé';
+          const proj = { id: idn(), name, createdAt: Date.now(), updatedAt: Date.now() };
+          projects.items.push(proj); projects.activeId = proj.id; saveProjects(window.CURRENT_USER, projects);
+          window.CURRENT_PROJECT = proj;
+        } else {
+          try {
+            const p = loadProjects(window.CURRENT_USER) || {activeId:null, items:[]};
+            const it = p.items.find(i=>i.id===window.CURRENT_PROJECT.id);
+            if (it){ it.updatedAt = Date.now(); saveProjects(window.CURRENT_USER, p); }
+          } catch(_){}
+        }
+        window.state = board || (typeof emptyState==='function'? emptyState(): {});
+        await idbSet('boards', boardKey(window.CURRENT_USER, window.CURRENT_PROJECT.id), JSON.stringify(window.state));
+        try { applyState(); applyTransform && applyTransform(); } catch(e){}
+        alert('Import enregistré dans le projet en cours.');
+        e.target.value='';
+      } catch(err){
+        console.error(err); alert('Import échoué.');
+      }
+    }, { capture: true });
+  })();
+})();
+</script>
+
 </body>
 </html>
