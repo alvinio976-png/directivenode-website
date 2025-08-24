@@ -1131,5 +1131,107 @@ $("#logoutBtn").onclick=logout;
 })();
 </script>
 
+
+<!-- === Force-Open Projects Overlay (works even if default 'Ouvrir' is broken) === -->
+<style>
+  #force-open-btn{position:fixed;bottom:14px;left:260px;z-index:999999;padding:8px 12px;border-radius:8px;border:none;cursor:pointer;background:rgba(255,140,0,.95);color:#fff;box-shadow:0 6px 18px rgba(0,0,0,.25);font-size:14px;}
+  #force-modal{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;align-items:center;justify-content:center;z-index:1000000}
+  #force-card{background:#fff;color:#111;min-width:540px;max-width:70vw;max-height:70vh;overflow:auto;border-radius:12px;box-shadow:0 20px 40px rgba(0,0,0,.35);padding:16px}
+  #force-card h3{margin:0 0 12px 0}
+  #force-list .row{display:flex;align-items:center;gap:8px;justify-content:space-between;border:1px solid #eee;border-radius:10px;padding:8px;margin:6px 0}
+  #force-list .name{font-weight:600}
+  #force-list .id{font-family:monospace;font-size:12px;color:#555}
+  #force-list .btns button{padding:6px 10px;border-radius:8px;border:none;cursor:pointer}
+  .btn-open{background:#0ea5e9;color:#fff}
+  .btn-check{background:#10b981;color:#fff}
+  .btn-close{background:#ef4444;color:#fff}
+</style>
+<div id="force-modal"><div id="force-card">
+  <h3>Ouvrir un projet (forcer)</h3>
+  <div id="force-user"></div>
+  <div id="force-list"></div>
+  <div style="margin-top:10px;display:flex;gap:8px;justify-content:flex-end">
+    <button class="btn-close" onclick="document.getElementById('force-modal').style.display='none'">Fermer</button>
+  </div>
+</div></div>
+<script>
+(function(){
+  function getUser(){ return window.CURRENT_USER || (document.querySelector('#userEmail')?.textContent?.trim()) || 'DEFAULT'; }
+  function loadProjList(user){
+    try{ const p = loadProjects(user); if (p && Array.isArray(p.items)) return p; }catch{}
+    const raw = localStorage.getItem('milanote_projects_'+user);
+    if (raw){ try{ const p=JSON.parse(raw); if (p && Array.isArray(p.items)) return p; }catch{} }
+    return {activeId:null, items:[]};
+  }
+  function saveProjList(user, p){
+    try{ saveProjects(user,p); }catch{}
+    try{ localStorage.setItem('milanote_projects_'+user, JSON.stringify(p)); }catch{}
+  }
+  async function boardGet(user, projId){
+    try { return await idbGet('boards', `milanote_board_${user}_${projId}`); }catch{ return null; }
+  }
+  async function boardSet(user, projId, json){
+    try { await idbSet('boards', `milanote_board_${user}_${projId}`, json); return true; }catch{ return false; }
+  }
+  function empty(){ try{ return JSON.stringify(emptyState()); }catch{ return JSON.stringify({ cards: [] }) } }
+  async function forceOpen(user, proj){
+    window.CURRENT_USER = user;
+    window.CURRENT_PROJECT = proj;
+    let raw = await boardGet(user, proj.id);
+    if (!raw){
+      // try legacy LS
+      const k = `milanote_board_${user}_${proj.id}`;
+      let legacy = null; try{ legacy = localStorage.getItem(k); }catch{}
+      if (legacy){ await boardSet(user, proj.id, legacy); raw = legacy; }
+    }
+    if (!raw){
+      // seed empty
+      await boardSet(user, proj.id, empty());
+    }
+    try{ await window.loadBoard(); }catch(e){
+      // fallback: parse and apply directly
+      try{
+        const v = await boardGet(user, proj.id);
+        window.state = typeof v==='string' ? JSON.parse(v) : v;
+        applyState(); applyTransform && applyTransform();
+      }catch{}
+    }
+    try{ document.getElementById('force-modal').style.display='none'; }catch{}
+  }
+  async function checkBoard(user, proj){
+    const v = await boardGet(user, proj.id);
+    alert(v ? `OK: trouvé pour ${proj.name}` : `Aucun board pour ${proj.name}`);
+  }
+
+  function openPanel(){
+    const user = getUser();
+    const list = loadProjList(user);
+    const root = document.getElementById('force-list'); root.innerHTML='';
+    document.getElementById('force-user').textContent = 'Utilisateur: '+user;
+    list.items.forEach(proj=>{
+      const row = document.createElement('div'); row.className='row';
+      row.innerHTML = `<div><div class="name">${proj.name||'(sans nom)'}</div><div class="id">${proj.id}</div></div>
+        <div class="btns">
+          <button class="btn-check">Vérifier</button>
+          <button class="btn-open">Ouvrir ici</button>
+        </div>`;
+      row.querySelector('.btn-check').onclick = ()=>checkBoard(user, proj);
+      row.querySelector('.btn-open').onclick  = ()=>forceOpen(user, proj);
+      root.appendChild(row);
+    });
+    document.getElementById('force-modal').style.display='flex';
+  }
+
+  function injectBtn(){
+    if (document.getElementById('force-open-btn')) return;
+    const b = document.createElement('button');
+    b.id = 'force-open-btn'; b.textContent='Projets (forcer)';
+    b.onclick = openPanel;
+    document.body.appendChild(b);
+  }
+  injectBtn(); setTimeout(injectBtn, 1000);
+})();
+</script>
+
 </body>
 </html>
