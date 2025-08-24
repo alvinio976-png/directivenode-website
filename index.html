@@ -983,5 +983,153 @@ $("#logoutBtn").onclick=logout;
 })();
 </script>
 
+
+<!-- === Cross-Origin Backup/Restore Toolkit === -->
+<style>
+  #backup-bar{position:fixed;bottom:14px;right:14px;z-index:999999;display:flex;gap:8px}
+  #backup-bar>button{padding:8px 12px;border-radius:8px;border:none;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.25);font-size:14px;color:#fff}
+  #btn-export{background:rgba(0,0,0,.75)}
+  #btn-import{background:rgba(80,130,255,.95)}
+  #btn-scan{background:rgba(15,163,94,.95)}
+</style>
+<script>
+(function(){
+  const TAG = 'milanote_board_';
+  function ensureDB(){
+    return new Promise((res,rej)=>{
+      const r = indexedDB.open('directivenode-db', 1);
+      r.onupgradeneeded = ()=>{
+        const db = r.result;
+        if (!db.objectStoreNames.contains('boards')) db.createObjectStore('boards');
+        if (!db.objectStoreNames.contains('assets')) db.createObjectStore('assets');
+      };
+      r.onsuccess = ()=>res(r.result);
+      r.onerror = ()=>rej(r.error);
+    });
+  }
+  async function idbListBoards(){
+    const db = await ensureDB();
+    const tx = db.transaction('boards','readonly'); const st=tx.objectStore('boards');
+    const rows=[];
+    await new Promise((res,rej)=>{
+      const req = st.openCursor();
+      req.onsuccess = e=>{
+        const c = e.target.result;
+        if (c){ rows.push({ key:c.key, value:c.value }); c.continue(); }
+        else res();
+      };
+      req.onerror = ()=>rej(req.error);
+    });
+    return rows;
+  }
+  function parseKey(k){
+    k = String(k||'');
+    if (!k.startsWith(TAG)) return { user:'UNKNOWN', projId:k };
+    const tail = k.slice(TAG.length);
+    const i = tail.indexOf('_');
+    if (i<0) return { user:'UNKNOWN', projId:tail };
+    return { user: tail.slice(0,i), projId: tail.slice(i+1) };
+  }
+  function loadProjList(user){
+    try{ const p = loadProjects(user); if (p && Array.isArray(p.items)) return p; }catch{}
+    const raw = localStorage.getItem('milanote_projects_'+user);
+    if (raw){ try{ const p=JSON.parse(raw); if (p && Array.isArray(p.items)) return p; }catch{} }
+    return { activeId:null, items:[] };
+  }
+  function saveProjList(user, p){
+    try{ saveProjects(user, p); }catch{}
+    try{ localStorage.setItem('milanote_projects_'+user, JSON.stringify(p)); }catch{}
+  }
+  function findById(p,id){ return p.items.find(i=>i.id===id); }
+  function addProj(p, id, name){
+    const now = Date.now();
+    const it = { id, name: name||('Projet '+id), createdAt: now, updatedAt: now };
+    p.items.push(it); if (!p.activeId) p.activeId = id; return it;
+  }
+
+  async function EXPORT_ALL(){
+    const report = { origin: location.origin, when: new Date().toISOString(), users:{} };
+
+    // Include LocalStorage boards (legacy)
+    for (let i=0;i<localStorage.length;i++){
+      const k = localStorage.key(i); if (!k || !k.startsWith(TAG)) continue;
+      const v = localStorage.getItem(k); if (!v) continue;
+      const { user, projId } = parseKey(k);
+      (report.users[user] ||= { projects: loadProjList(user), boards:{} });
+      report.users[user].boards[projId] = v;
+    }
+    // Include IndexedDB boards
+    const idb = await idbListBoards();
+    for (const row of idb){
+      const { user, projId } = parseKey(row.key);
+      const v = row.value;
+      (report.users[user] ||= { projects: loadProjList(user), boards:{} });
+      // prefer IDB data if exists; otherwise LS wins
+      if (!report.users[user].boards[projId]) report.users[user].boards[projId] = v;
+    }
+
+    const blob = new Blob([JSON.stringify(report,null,2)], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    const safeDate = new Date().toISOString().replace(/[:.]/g,'-');
+    a.download = `directivenode-backup-${safeDate}.json`;
+    a.click();
+  }
+
+  async function IMPORT_ALL(file){
+    const text = await file.text();
+    let data; try{ data = JSON.parse(text); }catch{ alert('Fichier JSON invalide.'); return; }
+    if (!data || !data.users) { alert('Format de backup inconnu.'); return; }
+
+    let created=0, updated=0, boards=0;
+    for (const [user, bucket] of Object.entries(data.users)){
+      const p = loadProjList(user);
+      const projects = bucket.projects && bucket.projects.items ? bucket.projects : p;
+      // merge projects (add missing)
+      for (const it of (projects.items||[])){
+        if (!findById(p, it.id)){ p.items.push(it); created++; }
+      }
+      // write boards
+      for (const [projId, raw] of Object.entries(bucket.boards||{})){
+        await idbSet('boards', `${TAG}${user}_${projId}`, typeof raw==='string'?raw:JSON.stringify(raw));
+        boards++;
+      }
+      saveProjList(user, p);
+      if (!window.CURRENT_USER) window.CURRENT_USER = user;
+    }
+    try{ if (typeof renderProjectsList==='function' && window.CURRENT_USER) renderProjectsList(); }catch{}
+    alert(`Import terminé: ${created} projet(s) ajouté(s), ${boards} board(s) écrit(s).`);
+  }
+
+  async function SCAN_NOW(){
+    const idb = await idbListBoards();
+    const ls = [];
+    for (let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); if(k&&k.startsWith(TAG)) ls.push(k); }
+    console.log('IndexedDB keys:', idb.map(r=>r.key));
+    console.log('localStorage keys:', ls);
+    alert(`Scan storage:\nIDB: ${idb.length} board(s)\nlocalStorage: ${ls.length} clé(s)`);
+  }
+
+  // UI
+  function injectBar(){
+    if (document.getElementById('backup-bar')) return;
+    const bar = document.createElement('div');
+    bar.id='backup-bar';
+    bar.innerHTML = '<button id="btn-export">Exporter (backup)</button><button id="btn-import">Importer (backup)</button><button id="btn-scan">Scanner</button>';
+    document.body.appendChild(bar);
+    document.getElementById('btn-export').onclick = EXPORT_ALL;
+    document.getElementById('btn-scan').onclick = SCAN_NOW;
+    document.getElementById('btn-import').onclick = ()=>{
+      const inp = document.createElement('input');
+      inp.type='file'; inp.accept='application/json';
+      inp.onchange = ()=>{ if (inp.files && inp.files[0]) IMPORT_ALL(inp.files[0]); };
+      inp.click();
+    };
+  }
+  injectBar();
+  setTimeout(injectBar, 1000);
+})();
+</script>
+
 </body>
 </html>
