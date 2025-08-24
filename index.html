@@ -593,3 +593,68 @@ $("#logoutBtn").onclick=logout;
 
 </body>
 </html>
+
+
+<!-- ===== DirectiveNode Open-Project Fix Patch (2025-08-24) ===== -->
+<script>
+(function(){
+  // Robust async override for opening a project
+  const originalSetActive = window.setActiveProject;
+  window.setActiveProject = async function(id){
+    try{
+      const p = (typeof loadProjects === "function") ? loadProjects(CURRENT_USER) : null;
+      if (!p) throw new Error("loadProjects introuvable");
+      p.activeId = id;
+      if (typeof saveProjects === "function") saveProjects(CURRENT_USER, p);
+
+      window.CURRENT_PROJECT = p.items ? (p.items.find(i => i.id === id) || null) : null;
+      if (!window.CURRENT_PROJECT){
+        alert("Projet introuvable"); 
+        return;
+      }
+
+      // Migration localStorage -> IndexedDB (optionnelle, si helpers exposés)
+      try{
+        const key = (typeof boardKey === "function") ? boardKey(CURRENT_USER, id) : null;
+        if (key && window.idbGet && window.idbSet){
+          const has = await window.idbGet('boards', key);
+          if (has == null){
+            const legacy = localStorage.getItem(key);
+            if (legacy){
+              await window.idbSet('boards', key, legacy);
+              localStorage.removeItem(key);
+            }
+          }
+        }
+      }catch(e){ /* silencieux */ }
+
+      // Important: loadBoard est async → on attend réellement
+      if (typeof window.loadBoard === "function"){
+        await window.loadBoard();
+      }
+
+      // Fermer le modal si présent
+      const modal = document.getElementById('projectsModal');
+      if (modal) modal.style.display = 'none';
+
+      // UI refresh (facultatif)
+      if (typeof window.applyState === "function") window.applyState();
+    }catch(err){
+      console.error("setActiveProject (override) error:", err);
+      if (typeof originalSetActive === "function"){
+        try{ originalSetActive(id); }catch(_){}
+      }else{
+        alert("Impossible d’ouvrir ce projet (voir console).");
+      }
+    }
+  };
+
+  // Tentative d'exposer les helpers IndexedDB s'ils existent dans ce scope (no-op sinon)
+  try{
+    if (typeof idbGet === "function" && !('idbGet' in window)) window.idbGet = idbGet;
+    if (typeof idbSet === "function" && !('idbSet' in window)) window.idbSet = idbSet;
+    if (typeof idbDel === "function" && !('idbDel' in window)) window.idbDel = idbDel;
+  }catch(e){}
+})();
+</script>
+<!-- ===== /DirectiveNode Fix Patch ===== -->
