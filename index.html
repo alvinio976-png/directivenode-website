@@ -591,5 +591,154 @@ $("#logoutBtn").onclick=logout;
 })();
 </script>
 
+
+<!-- === Ultimate Recovery + Import-into-Current Patch === -->
+<style>
+  #rec-btn-fixed{
+    position: fixed; bottom: 14px; left: 14px; z-index: 999999;
+    padding: 8px 12px; border-radius: 8px; border: none; cursor: pointer;
+    background: rgba(60,130,255,.95); color: white; box-shadow: 0 6px 18px rgba(0,0,0,.25);
+    font-size: 14px;
+  }
+</style>
+<script>
+(function(){
+  // --- Utilities (assume idbGet/idbSet/boardKey exist from previous patch) ---
+  function ensureFns(){
+    if (typeof boardKey !== 'function'){
+      window.boardKey = (u,p)=>`milanote_board_${u}_${p}`;
+    }
+  }
+  ensureFns();
+
+  async function idbHas(user, projId){
+    try { return (await idbGet('boards', boardKey(user, projId))) != null; }
+    catch(e){ return false; }
+  }
+  function loadP(user){
+    let p=null; try{ p = loadProjects(user); }catch(e){}
+    if (!p || !Array.isArray(p.items)) p = {activeId:null, items:[]};
+    return p;
+  }
+  function findItem(p,id){ return p.items.find(i=>i.id===id); }
+  function addItem(p,id,name){
+    const now = Date.now();
+    const item = { id, name: name||('Récupéré '+new Date(now).toLocaleString()), createdAt: now, updatedAt: now };
+    p.items.push(item); return item;
+  }
+  function guessName(raw, fallback){
+    try{ const j=JSON.parse(raw); return (j.title||j.name||j.meta?.name||fallback||'Projet récupéré'); }catch(_){}
+    return fallback||'Projet récupéré';
+  }
+
+  async function migrateAll({simulate=false}={}){
+    if (!window.CURRENT_USER){ alert("Connecte-toi d'abord, puis clique Récupérer."); return; }
+    const user = window.CURRENT_USER;
+    const p = loadP(user);
+    let migrated=0, skipped=0, errors=0, scanned=0;
+
+    for (let i=0;i<localStorage.length;i++){
+      const key = localStorage.key(i); if (!key) continue;
+      if (!key.startsWith('milanote_board_')) continue;
+      scanned++;
+      let raw=null; try{ raw=localStorage.getItem(key); }catch(_){}
+      if (!raw || raw.length<5){ skipped++; continue; }
+      // infer old projId from key tail
+      const parts = key.split('_');
+      const projId = parts.length>=4 ? parts.slice(3).join('_') : parts.pop();
+      const dbKey = boardKey(user, projId);
+      let exists=false; try{ exists = await idbHas(user, projId); }catch(_){}
+      if (exists){ skipped++; continue; }
+
+      const name = guessName(raw, projId);
+      if (!simulate){
+        try{
+          await idbSet('boards', dbKey, raw);
+          let it=findItem(p, projId); if(!it) addItem(p, projId, name);
+          migrated++;
+        }catch(e){ console.warn('IDB write failed', key, e); errors++; }
+      }
+    }
+    try{ saveProjects(user, p); }catch(_){}
+    try{ if (typeof renderProjectsList==='function') renderProjectsList(); }catch(_){}
+
+    const msg = `Récupération: ${migrated} migré(s), ${skipped} ignoré(s), ${errors} erreur(s), ${scanned} clé(s) scannées.`;
+    console.log(msg);
+    alert(msg);
+  }
+
+  // Floating button (always visible)
+  function injectFloating(){
+    if (document.getElementById('rec-btn-fixed')) return;
+    const b = document.createElement('button');
+    b.id='rec-btn-fixed'; b.textContent='Récupérer';
+    b.title='Récupérer les anciens projets (localStorage -> IndexedDB)';
+    b.onclick = ()=>migrateAll();
+    document.body.appendChild(b);
+  }
+  injectFloating();
+  setTimeout(injectFloating, 1000);
+
+  // Also try to add near "Importer"
+  function addNearImporter(){
+    const candidates=[...document.querySelectorAll('button, a, input[type="button"], input[type="submit"]')];
+    const importer = candidates.find(x => (x.textContent||x.value||'').toLowerCase().includes('import'));
+    if (importer && !importer.__recoveryInjected){
+      const btn = document.createElement('button');
+      btn.textContent='Récupérer';
+      btn.style.marginLeft='8px';
+      btn.onclick = ()=>migrateAll();
+      importer.insertAdjacentElement('afterend', btn);
+      importer.__recoveryInjected = true;
+    }
+  }
+  setInterval(addNearImporter, 1200);
+
+  // Hotkey Ctrl/Cmd + Alt + R
+  document.addEventListener('keydown', (e)=>{
+    if ((e.ctrlKey||e.metaKey) && e.altKey && (e.key==='r'||e.key==='R')){ e.preventDefault(); migrateAll(); }
+  });
+
+  // Universal JSON importer hook: save into CURRENT_PROJECT if present
+  function hookJsonInputs(){
+    const inputs = [...document.querySelectorAll('input[type="file"]')];
+    for (const el of inputs){
+      if (el.__jsonHooked) continue;
+      el.addEventListener('change', async (e)=>{
+        const f = e.target?.files?.[0]; if (!f) return;
+        if (!/\.json$/i.test(f.name)) return; // ignore other files
+        try{
+          const text = await f.text();
+          let data; try{ data=JSON.parse(text); }catch{ alert('JSON invalide'); return; }
+          const board = (data&&data.cards)?data:(data?.data?.cards?data.data:data.state||data);
+          if (!window.CURRENT_USER){ alert("Connecte-toi d'abord."); return; }
+          // ensure a current project exists
+          if (!window.CURRENT_PROJECT){
+            let p = loadP(window.CURRENT_USER);
+            const name = (board?.title || f.name.replace(/\.json$/i,'')).trim() || 'Projet importé';
+            const id = Math.random().toString(36).slice(2);
+            const it = addItem(p, id, name); p.activeId=id; saveProjects(window.CURRENT_USER, p);
+            window.CURRENT_PROJECT = it;
+          }else{
+            try{
+              let p = loadP(window.CURRENT_USER);
+              const it = p.items.find(i=>i.id===window.CURRENT_PROJECT.id);
+              if (it){ it.updatedAt = Date.now(); saveProjects(window.CURRENT_USER, p); }
+            }catch(_){}
+          }
+          window.state = board || {};
+          await idbSet('boards', boardKey(window.CURRENT_USER, window.CURRENT_PROJECT.id), JSON.stringify(window.state));
+          try{ applyState(); applyTransform && applyTransform(); }catch(_){}
+          alert('Import enregistré dans le projet en cours.');
+          e.target.value='';
+        }catch(err){ console.error(err); alert('Import échoué.'); }
+      }, { capture:true });
+      el.__jsonHooked = true;
+    }
+  }
+  setInterval(hookJsonInputs, 1200);
+})();
+</script>
+
 </body>
 </html>
