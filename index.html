@@ -854,5 +854,134 @@ $("#logoutBtn").onclick=logout;
 })();
 </script>
 
+
+<!-- === Rebuilder: reconstruct projects from IndexedDB (even if localStorage is empty) === -->
+<style>
+  #rebuild-btn{position:fixed;bottom:14px;left:130px;z-index:999999;padding:8px 12px;border-radius:8px;border:none;cursor:pointer;background:rgba(15,163,94,.95);color:#fff;box-shadow:0 6px 18px rgba(0,0,0,.25);font-size:14px;}
+</style>
+<script>
+(function(){
+  // list all entries in IDB store 'boards' and rebuild project lists per user
+  async function listIDBBoards(){
+    const db = await (function openDB(){
+      return new Promise((res, rej)=>{
+        const r = indexedDB.open('directivenode-db', 1);
+        r.onupgradeneeded = () => {
+          const db = r.result;
+          if (!db.objectStoreNames.contains('boards')) db.createObjectStore('boards');
+          if (!db.objectStoreNames.contains('assets')) db.createObjectStore('assets');
+        };
+        r.onsuccess = ()=>res(r.result);
+        r.onerror = ()=>rej(r.error);
+      });
+    })();
+
+    return new Promise((resolve, reject)=>{
+      const tx = db.transaction('boards', 'readonly');
+      const store = tx.objectStore('boards');
+      const out = [];
+      const req = store.openCursor();
+      req.onsuccess = async (ev)=>{
+        const cursor = ev.target.result;
+        if (cursor){
+          out.push({ key: cursor.key, value: cursor.value });
+          cursor.continue();
+        } else {
+          resolve(out);
+        }
+      };
+      req.onerror = ()=>reject(req.error);
+    });
+  }
+
+  function parseKey(k){
+    const s = String(k||'');
+    const tag = 'milanote_board_';
+    if (s.startsWith(tag)){
+      const tail = s.slice(tag.length);
+      const i = tail.indexOf('_');
+      if (i>0){
+        return { user: tail.slice(0,i), projId: tail.slice(i+1), raw: s };
+      }
+    }
+    // fallback: unknown format -> single bucket
+    return { user: 'UNKNOWN', projId: s, raw: s };
+  }
+
+  function loadProjList(user){
+    try { const p = loadProjects(user); if (p && Array.isArray(p.items)) return p; } catch{}
+    const raw = localStorage.getItem('milanote_projects_'+user);
+    if (raw){ try { const p = JSON.parse(raw); if (p && Array.isArray(p.items)) return p; } catch{} }
+    return { activeId:null, items:[] };
+  }
+  function saveProjList(user, p){
+    try { saveProjects(user, p); } catch{}
+    try { localStorage.setItem('milanote_projects_'+user, JSON.stringify(p)); } catch{}
+  }
+  function findById(p,id){ return p.items.find(i=>i.id===id); }
+  function findByName(p,name){
+    if(!name) return null;
+    const n = String(name).toLowerCase().trim();
+    return p.items.find(i => String(i.name||'').toLowerCase().trim() === n);
+  }
+  function addProj(p, id, name){
+    const now = Date.now();
+    const item = { id, name: name||('Récupéré '+new Date(now).toLocaleString()), createdAt: now, updatedAt: now };
+    p.items.push(item);
+    if (!p.activeId) p.activeId = id;
+    return item;
+  }
+
+  async function rebuildFromIDB(){
+    let entries = [];
+    try { entries = await listIDBBoards(); }
+    catch(e){ alert("Impossible de lire IndexedDB. Ouvre la page en https et hors mode privé."); return; }
+
+    if (!entries.length){ alert("Aucun board trouvé dans IndexedDB."); return; }
+
+    // group entries per user (from key)
+    const groups = {};
+    for (const it of entries){
+      const info = parseKey(it.key);
+      (groups[info.user] ||= []).push({ ...info, value: it.value });
+    }
+
+    let created = 0, fixed = 0;
+    for (const [user, arr] of Object.entries(groups)){
+      const p = loadProjList(user);
+      for (const row of arr){
+        let name='';
+        try { const j = JSON.parse(row.value); name = j.title || j.name || j.meta?.name || ''; } catch{}
+        let it = findById(p, row.projId);
+        if (!it){
+          const byName = findByName(p, name);
+          if (byName){ byName.id = row.projId; byName.updatedAt = Date.now(); fixed++; }
+          else { addProj(p, row.projId, name || row.projId); created++; }
+        }
+      }
+      saveProjList(user, p);
+      try { if (typeof renderProjectsList==='function' && window.CURRENT_USER===user) renderProjectsList(); } catch{}
+    }
+
+    // if CURRENT_USER not set, pick first group
+    if (!window.CURRENT_USER) window.CURRENT_USER = Object.keys(groups)[0];
+
+    alert(`Reconstruit depuis IndexedDB : ${created} projet(s) créé(s), ${fixed} corrigé(s).`);
+  }
+
+  // floating button
+  function injectRebuild(){
+    if (document.getElementById('rebuild-btn')) return;
+    const b = document.createElement('button');
+    b.id='rebuild-btn'; b.textContent='Reconstruire (IDB)';
+    b.title='Reconstruire la liste des projets depuis IndexedDB';
+    b.onclick = rebuildFromIDB;
+    document.body.appendChild(b);
+  }
+  injectRebuild();
+  setTimeout(injectRebuild, 1000);
+})();
+</script>
+
 </body>
 </html>
